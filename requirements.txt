@@ -1,0 +1,13 @@
+requirements = """pyTelegramBotAPI
+google-genai
+requests
+beautifulsoup4
+flask
+gunicorn
+"""
+
+with open("/content/project/requirements.txt", "w") as f:
+    f.write(requirements)
+
+print("✅ requirements.txt создан")
+print(requirements)
