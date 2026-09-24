@@ -20,6 +20,7 @@ logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 app = Flask(__name__)
 database.init_db()
+database.init_jobs_table()
 
 SECRET = os.environ.get("WEBHOOK_SECRET", "change_me_secret")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")

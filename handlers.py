@@ -8,6 +8,8 @@ from database import (
 )
 from ai import ask_ai, run_code, auto_fix
 from parser import parse_quotes
+from jobs import fetch_jobs_from_channel
+from database import save_jobs, search_jobs
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS
 
 
@@ -205,3 +207,37 @@ def handle_history(message):
 def echo_all(message):
     """Отвечает на любое не-командное сообщение."""
     bot.reply_to(message, f"Ты написал: {message.text}")
+
+
+@bot.message_handler(commands=['find'])
+def handle_find(message):
+    """Ищет заказы в Telegram-каналах и сохраняет в БД."""
+    keyword = message.text.replace("/find", "", 1).strip()
+    bot.reply_to(message, "🔍 Сканирую каналы...")
+
+    try:
+        jobs = fetch_jobs_from_channel("allgigs", max_posts=5)
+        if not jobs:
+            bot.reply_to(message, "😔 Ничего не нашлось.")
+            return
+
+        new_count = save_jobs(jobs, "allgigs")
+        total = len(jobs)
+        bot.reply_to(message, f"✅ Найдено {total} вакансий ({new_count} новых)")
+
+        if keyword:
+            results = search_jobs(keyword, limit=10)
+            if not results:
+                bot.reply_to(message, f"🔍 По запросу '{keyword}' ничего нет.")
+                return
+
+            lines = [f"🎯 Найдено {len(results)} по запросу '{keyword}':\n"]
+            for cat, title, desc, url, date in results:
+                lines.append(f"[{cat}] {title}")
+                lines.append(f"   {desc[:150]}...")
+                lines.append(f"   🔗 {url}\n")
+            send_code(message, "\n".join(lines))
+
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, f"🔥 Ошибка в /find:\n{traceback.format_exc()[-500:]}")

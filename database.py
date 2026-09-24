@@ -135,3 +135,151 @@ def get_user_tasks(user_id, limit=5):
     cursor.close()
     conn.close()
     return result
+
+
+def init_jobs_table():
+    """Создаёт таблицу found_jobs для найденных вакансий."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS found_jobs (
+            id           SERIAL PRIMARY KEY,
+            job_uid      TEXT UNIQUE,
+            channel      TEXT,
+            category     TEXT,
+            title        TEXT,
+            description  TEXT,
+            post_url     TEXT,
+            posted_at    TEXT,
+            found_at     TEXT
+        )
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def save_jobs(jobs_list, channel):
+    """Сохраняет новые вакансии. Возвращает количество НОВЫХ."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_count = 0
+
+    for job in jobs_list:
+        try:
+            cursor.execute("""
+                INSERT INTO found_jobs (job_uid, channel, category, title, description, post_url, posted_at, found_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                job["job_uid"],
+                channel,
+                job["category"],
+                job["title"],
+                job["description"],
+                job["post_url"],
+                job["posted_at"],
+                now
+            ))
+            new_count += 1
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+        except Exception as e:
+            print(f"\u26A0 Ошибка сохранения: {e}")
+            conn.rollback()
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return new_count
+
+
+def search_jobs(keyword, limit=20):
+    """Ищет заказы по ключевому слову в title или description."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT category, title, description, post_url, posted_at
+        FROM found_jobs
+        WHERE (title ILIKE %s OR description ILIKE %s)
+        ORDER BY id DESC
+        LIMIT %s
+    """, (f"%{keyword}%", f"%{keyword}%", limit))
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def init_jobs_table():
+    """Создаёт таблицу found_jobs для найденных вакансий."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS found_jobs (
+            id           SERIAL PRIMARY KEY,
+            job_uid      TEXT UNIQUE,
+            channel      TEXT,
+            category     TEXT,
+            title        TEXT,
+            description  TEXT,
+            post_url     TEXT,
+            posted_at    TEXT,
+            found_at     TEXT
+        )
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def save_jobs(jobs_list, channel):
+    """Сохраняет новые вакансии. Возвращает количество НОВЫХ."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    new_count = 0
+
+    for job in jobs_list:
+        try:
+            cursor.execute("""
+                INSERT INTO found_jobs (job_uid, channel, category, title, description, post_url, posted_at, found_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, (
+                job["job_uid"],
+                channel,
+                job["category"],
+                job["title"],
+                job["description"],
+                job["post_url"],
+                job["posted_at"],
+                now
+            ))
+            new_count += 1
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+        except Exception as e:
+            print(f"\u26A0 Ошибка сохранения: {e}")
+            conn.rollback()
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return new_count
+
+
+def search_jobs(keyword, limit=20):
+    """Ищет заказы по ключевому слову в title или description."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT category, title, description, post_url, posted_at
+        FROM found_jobs
+        WHERE (title ILIKE %s OR description ILIKE %s)
+        ORDER BY id DESC
+        LIMIT %s
+    """, (f"%{keyword}%", f"%{keyword}%", limit))
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
