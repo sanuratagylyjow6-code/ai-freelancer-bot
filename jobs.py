@@ -86,3 +86,58 @@ def fetch_jobs_from_channel(channel="allgigs", max_posts=5):
         all_jobs.extend(jobs)
 
     return all_jobs
+
+
+def broadcast_to_all_users():
+    """Парсит канал и рассылает новые релевантные вакансии всем пользователям."""
+    import database
+    from core import bot
+
+    # 1. Парсим свежие посты
+    jobs = fetch_jobs_from_channel("allgigs", max_posts=3)
+    if not jobs:
+        return {"parsed": 0, "saved": 0, "sent_users": 0, "sent_jobs": 0}
+
+    new_saved = database.save_jobs(jobs, "allgigs")
+
+    # 2. Идём по всем пользователям с активными фильтрами
+    users = database.get_all_users_with_filters()
+    sent_users = 0
+    sent_jobs_total = 0
+
+    for user_id, keywords in users:
+        try:
+            new_jobs = database.get_new_jobs_for_user(user_id, keywords, limit=10)
+            if not new_jobs:
+                continue
+
+            # Собираем сообщение
+            lines = [f"🎯 Новые вакансии по твоему фильтру ({len(new_jobs)}):\n"]
+            job_ids = []
+            for jid, cat, title, desc, url in new_jobs:
+                job_ids.append(jid)
+                lines.append(f"[{cat}] {title}")
+                lines.append(f"   {desc[:150]}...")
+                lines.append(f"   🔗 {url}\n")
+
+            text = "\n".join(lines)
+            # Отправляем частями (Telegram-лимит 4096)
+            for part in [text[i:i+4000] for i in range(0, len(text), 4000)]:
+                try:
+                    bot.send_message(user_id, part, disable_web_page_preview=True)
+                except Exception as e:
+                    print(f"⚠ Не смог отправить {user_id}: {e}")
+                    break
+
+            database.mark_jobs_sent(user_id, job_ids)
+            sent_users += 1
+            sent_jobs_total += len(job_ids)
+        except Exception as e:
+            print(f"🔥 Ошибка рассылки для {user_id}: {e}")
+
+    return {
+        "parsed": len(jobs),
+        "saved": new_saved,
+        "sent_users": sent_users,
+        "sent_jobs": sent_jobs_total
+    }

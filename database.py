@@ -370,3 +370,75 @@ def find_new_jobs_for_keywords(keywords_string, limit=20):
     cursor.close()
     conn.close()
     return result
+
+
+def init_sent_table():
+    """Создаёт таблицу: что мы уже отправили какому пользователю."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sent_notifications (
+            id        SERIAL PRIMARY KEY,
+            user_id   BIGINT,
+            job_id    INTEGER,
+            sent_at   TEXT,
+            UNIQUE (user_id, job_id)
+        )
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_new_jobs_for_user(user_id, keywords_string, limit=10):
+    """Возвращает вакансии по фильтру, которые этому юзеру ещё не отправляли."""
+    words = [w.strip().lower() for w in keywords_string.split(",") if w.strip()]
+    if not words:
+        return []
+
+    conn = get_conn()
+    cursor = conn.cursor()
+    where_parts = []
+    params = [user_id]
+    for w in words:
+        where_parts.append("(LOWER(f.title) LIKE %s OR LOWER(f.description) LIKE %s)")
+        params.append(f"%{w}%")
+        params.append(f"%{w}%")
+
+    sql = f"""
+        SELECT f.id, f.category, f.title, f.description, f.post_url
+        FROM found_jobs f
+        WHERE ({' OR '.join(where_parts)})
+          AND f.id NOT IN (
+              SELECT job_id FROM sent_notifications WHERE user_id = %s
+          )
+        ORDER BY f.id DESC
+        LIMIT %s
+    """
+    # Параметры: сначала для WHERE слова, потом user_id для подзапроса, потом limit
+    full_params = params[1:] + [user_id, limit]
+    cursor.execute(sql, full_params)
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def mark_jobs_sent(user_id, job_ids):
+    """Помечает список вакансий как отправленные пользователю."""
+    if not job_ids:
+        return
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    for jid in job_ids:
+        try:
+            cursor.execute(
+                "INSERT INTO sent_notifications (user_id, job_id, sent_at) VALUES (%s, %s, %s)",
+                (user_id, jid, now)
+            )
+        except psycopg2.errors.UniqueViolation:
+            conn.rollback()
+    conn.commit()
+    cursor.close()
+    conn.close()

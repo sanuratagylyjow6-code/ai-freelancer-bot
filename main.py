@@ -22,6 +22,7 @@ app = Flask(__name__)
 database.init_db()
 database.init_jobs_table()
 database.init_filters_table()
+database.init_sent_table()
 
 SECRET = os.environ.get("WEBHOOK_SECRET", "change_me_secret")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
@@ -53,7 +54,23 @@ def receive_webhook():
         return "", 500
 
 
+@app.route("/cron", methods=["GET", "POST"])
+def cron_task():
+    """Эндпоинт для внешнего cron. Парсит канал и рассылает вакансии."""
+    try:
+        import jobs as jobs_module
+        print("⏰ Cron запущен", flush=True)
+        stats = jobs_module.broadcast_to_all_users()
+        print(f"✅ Cron завершён: {stats}", flush=True)
+        return stats, 200
+    except Exception as e:
+        import traceback
+        print(f"🔥 Cron упал:\n{traceback.format_exc()}", flush=True)
+        return {"error": str(e)}, 500
+
+
 if WEBHOOK_URL:
+
     try:
         bot.remove_webhook()
         bot.set_webhook(url=f"{WEBHOOK_URL}/webhook/{SECRET}")
