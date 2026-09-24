@@ -12,6 +12,7 @@ import database
 import handlers                                # регистрирует все @bot.message_handler
 from core import bot                           # объект бота
 
+bot.threaded = False
 
 # Включаем логирование telebot — теперь его ошибки попадут в лог Render
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
