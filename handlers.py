@@ -34,14 +34,25 @@ def send_code(message, code_text):
         except Exception as e:
             bot.reply_to(message, f"⚠ Не смог отправить: {e}")
 
-
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     """Регистрирует пользователя и приветствует его."""
-    user_id = message.from_user.id
-    username = message.from_user.first_name or message.from_user.username or "без имени"
-    save_user(user_id, username)
-    bot.reply_to(message, f"Привет, {username}! Я AI Freelancer Bot 🤖")
+    try:
+        print(f"📥 /start от user_id={message.from_user.id}", flush=True)
+        user_id = message.from_user.id
+        username = message.from_user.first_name or message.from_user.username or "без имени"
+        print(f"👤 username={username}", flush=True)
+        save_user(user_id, username)
+        print(f"💾 save_user OK", flush=True)
+        bot.reply_to(message, f"Привет, {username}! Я AI Freelancer Bot 🤖")
+        print(f"✉️ Ответ отправлен", flush=True)
+    except Exception as e:
+        import traceback
+        print(f"🔥 /start упал:\n{traceback.format_exc()}", flush=True)
+        try:
+            bot.reply_to(message, f"⚠ Ошибка: {e}")
+        except Exception:
+            pass
 
 
 @bot.message_handler(commands=['help'])
