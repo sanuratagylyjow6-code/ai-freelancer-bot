@@ -1,13 +1,20 @@
-"""Работа с базой данных SQLite: пользователи и задачи."""
+"""Работа с PostgreSQL: пользователи и задачи."""
 
-import sqlite3
+import psycopg2
 from datetime import datetime
-from config import DB_PATH
+from config import DB_HOST, DB_PORT, DB_NAME, DB_USER, DB_PASSWORD
 
 
 def get_conn():
-    """Возвращает свежее соединение с БД."""
-    return sqlite3.connect(DB_PATH, check_same_thread=False)
+    """Возвращает новое соединение с PostgreSQL."""
+    return psycopg2.connect(
+        host=DB_HOST,
+        port=DB_PORT,
+        dbname=DB_NAME,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        sslmode="require"
+    )
 
 
 def init_db():
@@ -15,29 +22,20 @@ def init_db():
     conn = get_conn()
     cursor = conn.cursor()
 
-    # SQL-запрос 1: таблица пользователей
-    # id            - уникальный номер строки, ставится автоматически
-    # user_id       - ID пользователя в Telegram (не повторяется)
-    # username      - имя из профиля
-    # first_seen    - дата первого обращения
-    # message_count - сколько сообщений прислал
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id       INTEGER UNIQUE,
+            id            SERIAL PRIMARY KEY,
+            user_id       BIGINT UNIQUE,
             username      TEXT,
             first_seen    TEXT,
             message_count INTEGER DEFAULT 1
         )
     """)
 
-    # SQL-запрос 2: таблица задач (для /run и /code)
-    # status: "pending" / "success" / "error"
-    # attempts: сколько попыток потребовалось (1, 2, 3...)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS tasks (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id    INTEGER,
+            id         SERIAL PRIMARY KEY,
+            user_id    BIGINT,
             prompt     TEXT,
             code       TEXT,
             status     TEXT,
@@ -48,97 +46,92 @@ def init_db():
     """)
 
     conn.commit()
+    cursor.close()
     conn.close()
 
 
 def save_user(user_id, username):
-    """Сохраняет нового пользователя или обновляет счётчик у существующего."""
     conn = get_conn()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
 
-    # Проверяем, есть ли уже такой пользователь
-    cursor.execute(
-        "SELECT message_count FROM users WHERE user_id = ?",
-        (user_id,)
-    )
+    cursor.execute("SELECT message_count FROM users WHERE user_id = %s", (user_id,))
     row = cursor.fetchone()
 
     if row is None:
-        # Новый пользователь — вставляем
         cursor.execute(
-            "INSERT INTO users (user_id, username, first_seen, message_count) VALUES (?, ?, ?, 1)",
+            "INSERT INTO users (user_id, username, first_seen, message_count) VALUES (%s, %s, %s, 1)",
             (user_id, username, now)
         )
     else:
-        # Уже есть — увеличиваем счётчик и обновляем имя
         cursor.execute(
-            "UPDATE users SET message_count = ?, username = ? WHERE user_id = ?",
+            "UPDATE users SET message_count = %s, username = %s WHERE user_id = %s",
             (row[0] + 1, username, user_id)
         )
 
     conn.commit()
+    cursor.close()
     conn.close()
 
 
 def get_user_stats(user_id):
-    """Возвращает кортеж (username, first_seen, message_count) или None."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT username, first_seen, message_count FROM users WHERE user_id = ?",
+        "SELECT username, first_seen, message_count FROM users WHERE user_id = %s",
         (user_id,)
     )
     result = cursor.fetchone()
+    cursor.close()
     conn.close()
     return result
 
 
 def get_all_clients():
-    """Возвращает список всех клиентов, отсортированных по активности."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute("SELECT user_id, username, first_seen, message_count FROM users ORDER BY message_count DESC")
     result = cursor.fetchall()
+    cursor.close()
     conn.close()
     return result
 
 
 def save_task(user_id, prompt, code):
-    """Сохраняет новую задачу со статусом 'pending' и возвращает её id."""
     conn = get_conn()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     cursor.execute(
-        "INSERT INTO tasks (user_id, prompt, code, status, created_at) VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO tasks (user_id, prompt, code, status, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
         (user_id, prompt, code, "pending", now)
     )
+    task_id = cursor.fetchone()[0]
     conn.commit()
-    task_id = cursor.lastrowid
+    cursor.close()
     conn.close()
     return task_id
 
 
 def update_task(task_id, status, error=None, attempts=1):
-    """Обновляет статус задачи после выполнения."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE tasks SET status = ?, error = ?, attempts = ? WHERE id = ?",
+        "UPDATE tasks SET status = %s, error = %s, attempts = %s WHERE id = %s",
         (status, error, attempts, task_id)
     )
     conn.commit()
+    cursor.close()
     conn.close()
 
 
 def get_user_tasks(user_id, limit=5):
-    """Возвращает последние задачи пользователя."""
     conn = get_conn()
     cursor = conn.cursor()
     cursor.execute(
-        "SELECT id, prompt, status, attempts, created_at FROM tasks WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+        "SELECT id, prompt, status, attempts, created_at FROM tasks WHERE user_id = %s ORDER BY id DESC LIMIT %s",
         (user_id, limit)
     )
     result = cursor.fetchall()
+    cursor.close()
     conn.close()
     return result
