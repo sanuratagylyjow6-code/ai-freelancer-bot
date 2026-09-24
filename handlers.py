@@ -9,7 +9,7 @@ from database import (
 from ai import ask_ai, run_code, auto_fix
 from parser import parse_quotes
 from jobs import fetch_jobs_from_channel
-from database import save_jobs, search_jobs
+from database import save_jobs, search_jobs, set_filter, get_filter, clear_filter
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS
 
 
@@ -241,3 +241,37 @@ def handle_find(message):
     except Exception as e:
         import traceback
         bot.reply_to(message, f"🔥 Ошибка в /find:\n{traceback.format_exc()[-500:]}")
+
+
+@bot.message_handler(commands=['track'])
+def handle_track(message):
+    """Сохраняет ключевые слова для автопоиска."""
+    keywords = message.text.replace("/track", "", 1).strip()
+    if not keywords:
+        bot.reply_to(message, "Напиши слова через запятую. Пример: /track python, разработчик, веб")
+        return
+
+    user_id = message.from_user.id
+    set_filter(user_id, keywords)
+    words = [w.strip() for w in keywords.split(",")]
+    bot.reply_to(message, f"✅ Твой фильтр сохранён:\n🔍 {' | '.join(words)}\n\nЯ пришлю вакансии, где встречается хотя бы одно из этих слов.")
+
+
+@bot.message_handler(commands=['untrack'])
+def handle_untrack(message):
+    """Отключает фильтр."""
+    user_id = message.from_user.id
+    clear_filter(user_id)
+    bot.reply_to(message, "🛑 Фильтр отключён. Больше не буду присылать автоподборки.")
+
+
+@bot.message_handler(commands=['myfilter'])
+def handle_myfilter(message):
+    """Показывает текущий фильтр."""
+    user_id = message.from_user.id
+    keywords = get_filter(user_id)
+    if not keywords:
+        bot.reply_to(message, "У тебя нет фильтра. Задай через /track python, веб")
+        return
+    words = [w.strip() for w in keywords.split(",")]
+    bot.reply_to(message, f"🎯 Твой фильтр:\n🔍 {' | '.join(words)}")

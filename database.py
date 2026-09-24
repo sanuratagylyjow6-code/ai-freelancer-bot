@@ -283,3 +283,90 @@ def search_jobs(keyword, limit=20):
     cursor.close()
     conn.close()
     return result
+
+
+def init_filters_table():
+    """Создаёт таблицу user_filters."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_filters (
+            user_id    BIGINT PRIMARY KEY,
+            keywords   TEXT,
+            active     INTEGER DEFAULT 1,
+            created_at TEXT
+        )
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def set_filter(user_id, keywords):
+    """Сохраняет фильтр пользователя (создаёт или обновляет)."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute("""
+        INSERT INTO user_filters (user_id, keywords, active, created_at)
+        VALUES (%s, %s, 1, %s)
+        ON CONFLICT (user_id) DO UPDATE
+        SET keywords = EXCLUDED.keywords, active = 1
+    """, (user_id, keywords, now))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_filter(user_id):
+    """Возвращает строку с ключевыми словами или None."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT keywords FROM user_filters WHERE user_id = %s AND active = 1", (user_id,))
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row[0] if row else None
+
+
+def clear_filter(user_id):
+    """Отключает фильтр (не удаляет запись)."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE user_filters SET active = 0 WHERE user_id = %s", (user_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_all_users_with_filters():
+    """Возвращает список (user_id, keywords) для всех активных фильтров."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("SELECT user_id, keywords FROM user_filters WHERE active = 1")
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def find_new_jobs_for_keywords(keywords_string, limit=20):
+    """Ищет вакансии по строке ключевых слов через запятую."""
+    words = [w.strip().lower() for w in keywords_string.split(",") if w.strip()]
+    if not words:
+        return []
+    conn = get_conn()
+    cursor = conn.cursor()
+    where_parts = []
+    params = []
+    for w in words:
+        where_parts.append("(LOWER(title) LIKE %s OR LOWER(description) LIKE %s)")
+        params.append(f"%{w}%")
+        params.append(f"%{w}%")
+    sql = f"SELECT category, title, description, post_url FROM found_jobs WHERE {' OR '.join(where_parts)} ORDER BY id DESC LIMIT %s"
+    params.append(limit)
+    cursor.execute(sql, params)
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
