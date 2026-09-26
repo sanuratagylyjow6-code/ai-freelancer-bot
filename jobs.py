@@ -89,13 +89,14 @@ def fetch_jobs_from_channel(channel="allgigs", max_posts=5):
 
 
 def broadcast_to_all_users(use_ai_filter=True, min_score=6):
-    """Парсит канал и рассылает релевантные вакансии. Опционально — через Gemini-фильтр."""
+    """Парсит канал и рассылает релевантные вакансии с AI-фильтром."""
+    import time as time_module
     import database
     from core import bot
 
     jobs = fetch_jobs_from_channel("allgigs", max_posts=3)
     if not jobs:
-        return {"parsed": 0, "saved": 0, "sent_users": 0, "sent_jobs": 0, "ai_filtered": 0}
+        return {"parsed": 0, "saved": 0, "sent_users": 0, "sent_jobs": 0, "ai_filtered": 0, "ai_errors": 0}
 
     new_saved = database.save_jobs(jobs, "allgigs")
 
@@ -103,46 +104,43 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
     sent_users = 0
     sent_jobs_total = 0
     ai_filtered_count = 0
+    ai_error_count = 0
 
     for user_id, keywords in users:
         try:
-            candidates = database.get_new_jobs_for_user(user_id, keywords, limit=20)
+            candidates = database.get_new_jobs_for_user(user_id, keywords, limit=8)
             if not candidates:
                 continue
 
-            # Если AI-фильтр выключен — шлём всё (как раньше)
             if not use_ai_filter:
-                approved = candidates
+                approved = [(j[0], j[1], j[2], j[3], j[4], None, None) for j in candidates]
             else:
-                # Прогоняем каждого кандидата через Gemini
                 from ai import evaluate_job_relevance
                 approved = []
                 for jid, cat, title, desc, url in candidates:
                     score, reason = evaluate_job_relevance(title, desc, keywords)
+
                     if score is None:
-                        # Если Gemini не ответил — отправляем по старой логике (не блокируем)
-                        approved.append((jid, cat, title, desc, url, None, "ИИ недоступен"))
+                        # ИИ недоступен — НЕ отправляем (лучше пропустить)
+                        ai_error_count += 1
+                        print(f"⏭ Пропущено (ИИ недоступен): {title[:60]}", flush=True)
                         continue
+
                     if score >= min_score:
                         approved.append((jid, cat, title, desc, url, score, reason))
                     else:
                         ai_filtered_count += 1
-                        # Помечаем как отправленные (чтобы не проверять их снова)
                         database.mark_jobs_sent(user_id, [jid])
+
+                    # Пауза 4 сек между запросами = ~15 в минуту (лимит Free)
+                    time_module.sleep(4)
 
             if not approved:
                 continue
 
-            # Собираем сообщение
             lines = [f"🎯 Новые вакансии по фильтру '{keywords}' ({len(approved)}):\n"]
             job_ids = []
-            for item in approved:
-                if len(item) == 7:
-                    jid, cat, title, desc, url, score, reason = item
-                else:
-                    jid, cat, title, desc, url = item
-                    score, reason = None, None
-
+            for jid, cat, title, desc, url, score, reason in approved:
                 job_ids.append(jid)
                 header = f"[{cat}] {title}"
                 if score is not None:
@@ -165,7 +163,7 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
             sent_users += 1
             sent_jobs_total += len(job_ids)
 
-        except Exception as e:
+        except Exception:
             import traceback
             print(f"🔥 Ошибка рассылки для {user_id}:\n{traceback.format_exc()}")
 
@@ -174,5 +172,6 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
         "saved": new_saved,
         "sent_users": sent_users,
         "sent_jobs": sent_jobs_total,
-        "ai_filtered": ai_filtered_count
+        "ai_filtered": ai_filtered_count,
+        "ai_errors": ai_error_count
     }

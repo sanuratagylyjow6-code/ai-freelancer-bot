@@ -56,10 +56,17 @@ def receive_webhook():
         return "", 500
 
 
+_cron_lock = threading.Lock()
+
+
 @app.route("/cron", methods=["GET", "POST"])
 def cron_task():
-    """Запускает парсинг + рассылку в фоновом потоке. Отвечает мгновенно."""
+    """Запускает рассылку в фоне, но только если другой процесс не идёт."""
     def background_job():
+        acquired = _cron_lock.acquire(blocking=False)
+        if not acquired:
+            print("⏭ Cron уже выполняется, пропускаю", flush=True)
+            return
         try:
             import jobs as jobs_module
             print("\u23F0 Cron: фоновая задача запущена", flush=True)
@@ -67,10 +74,13 @@ def cron_task():
             print(f"\u2705 Cron завершён: {stats}", flush=True)
         except Exception:
             print(f"\U0001F525 Cron упал:\n{traceback.format_exc()}", flush=True)
+        finally:
+            _cron_lock.release()
 
     thread = threading.Thread(target=background_job, daemon=True)
     thread.start()
     return {"status": "started", "message": "Работа идёт в фоне"}, 200
+
 
 
 if WEBHOOK_URL:

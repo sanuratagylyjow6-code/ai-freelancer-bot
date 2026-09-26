@@ -34,42 +34,39 @@ def ask_ai(prompt, model=None, max_retries=3):
 
 
 def evaluate_job_relevance(title, description, keywords):
-    """Оценивает релевантность вакансии через Gemini.
-    Возвращает (score: int, reason: str) или (None, None) при ошибке."""
+    """Оценивает релевантность через Gemini. Возвращает (score, reason) или (None, None)."""
     prompt = f"""Ты оцениваешь вакансию для фрилансера.
 
-Интересы фрилансера (ключевые слова): {keywords}
+Интересы: {keywords}
 
 Вакансия:
 Название: {title}
 Описание: {description}
 
-Оцени релевантность по шкале от 0 до 10:
-- 10 — идеальное совпадение (в тексте прямо про эти темы)
+Оцени релевантность от 0 до 10:
+- 10 — идеальное совпадение
 - 7-9 — очень подходит
-- 4-6 — частично подходит (упомянуто, но не главное)
-- 1-3 — не подходит (другая сфера)
-- 0 — совсем не про то
+- 4-6 — частично
+- 1-3 — не подходит
+- 0 — совсем не то
 
-Ответь СТРОГО в формате (одна строка):
-SCORE: X | REASON: короткое_объяснение_до_100_символов
+Ответь СТРОГО одной строкой:
+SCORE: X | REASON: короткое_объяснение
 
-Где X — число от 0 до 10. Без других слов и разметки."""
+Без markdown, без других слов."""
 
-    response = ask_ai(prompt, max_retries=2)
-    if not response or "Ошибка ИИ" in response:
+    # Модель с большим лимитом
+    response = ask_ai(prompt, model="gemini-2.5-flash-lite", max_retries=2)
+    if not response or "Ошибка ИИ" in response or "Лимит ИИ" in response:
         return None, None
 
-    # Парсим ответ
     import re
     match = re.search(r"SCORE:\s*(\d+)", response)
     if not match:
         return None, None
-
     score = int(match.group(1))
     reason_match = re.search(r"REASON:\s*(.+?)(?:$|\n)", response)
     reason = reason_match.group(1).strip() if reason_match else ""
-
     return score, reason[:100]
 
 
