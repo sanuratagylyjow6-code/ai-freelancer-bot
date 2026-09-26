@@ -88,40 +88,72 @@ def fetch_jobs_from_channel(channel="allgigs", max_posts=5):
     return all_jobs
 
 
-def broadcast_to_all_users():
-    """Парсит канал и рассылает новые релевантные вакансии всем пользователям."""
+def broadcast_to_all_users(use_ai_filter=True, min_score=6):
+    """Парсит канал и рассылает релевантные вакансии. Опционально — через Gemini-фильтр."""
     import database
     from core import bot
 
-    # 1. Парсим свежие посты
     jobs = fetch_jobs_from_channel("allgigs", max_posts=3)
     if not jobs:
-        return {"parsed": 0, "saved": 0, "sent_users": 0, "sent_jobs": 0}
+        return {"parsed": 0, "saved": 0, "sent_users": 0, "sent_jobs": 0, "ai_filtered": 0}
 
     new_saved = database.save_jobs(jobs, "allgigs")
 
-    # 2. Идём по всем пользователям с активными фильтрами
     users = database.get_all_users_with_filters()
     sent_users = 0
     sent_jobs_total = 0
+    ai_filtered_count = 0
 
     for user_id, keywords in users:
         try:
-            new_jobs = database.get_new_jobs_for_user(user_id, keywords, limit=10)
-            if not new_jobs:
+            candidates = database.get_new_jobs_for_user(user_id, keywords, limit=20)
+            if not candidates:
+                continue
+
+            # Если AI-фильтр выключен — шлём всё (как раньше)
+            if not use_ai_filter:
+                approved = candidates
+            else:
+                # Прогоняем каждого кандидата через Gemini
+                from ai import evaluate_job_relevance
+                approved = []
+                for jid, cat, title, desc, url in candidates:
+                    score, reason = evaluate_job_relevance(title, desc, keywords)
+                    if score is None:
+                        # Если Gemini не ответил — отправляем по старой логике (не блокируем)
+                        approved.append((jid, cat, title, desc, url, None, "ИИ недоступен"))
+                        continue
+                    if score >= min_score:
+                        approved.append((jid, cat, title, desc, url, score, reason))
+                    else:
+                        ai_filtered_count += 1
+                        # Помечаем как отправленные (чтобы не проверять их снова)
+                        database.mark_jobs_sent(user_id, [jid])
+
+            if not approved:
                 continue
 
             # Собираем сообщение
-            lines = [f"🎯 Новые вакансии по твоему фильтру ({len(new_jobs)}):\n"]
+            lines = [f"🎯 Новые вакансии по фильтру '{keywords}' ({len(approved)}):\n"]
             job_ids = []
-            for jid, cat, title, desc, url in new_jobs:
+            for item in approved:
+                if len(item) == 7:
+                    jid, cat, title, desc, url, score, reason = item
+                else:
+                    jid, cat, title, desc, url = item
+                    score, reason = None, None
+
                 job_ids.append(jid)
-                lines.append(f"[{cat}] {title}")
+                header = f"[{cat}] {title}"
+                if score is not None:
+                    header += f"  ⭐ {score}/10"
+                lines.append(header)
                 lines.append(f"   {desc[:150]}...")
+                if reason:
+                    lines.append(f"   💡 {reason}")
                 lines.append(f"   🔗 {url}\n")
 
             text = "\n".join(lines)
-            # Отправляем частями (Telegram-лимит 4096)
             for part in [text[i:i+4000] for i in range(0, len(text), 4000)]:
                 try:
                     bot.send_message(user_id, part, disable_web_page_preview=True)
@@ -132,12 +164,15 @@ def broadcast_to_all_users():
             database.mark_jobs_sent(user_id, job_ids)
             sent_users += 1
             sent_jobs_total += len(job_ids)
+
         except Exception as e:
-            print(f"🔥 Ошибка рассылки для {user_id}: {e}")
+            import traceback
+            print(f"🔥 Ошибка рассылки для {user_id}:\n{traceback.format_exc()}")
 
     return {
         "parsed": len(jobs),
         "saved": new_saved,
         "sent_users": sent_users,
-        "sent_jobs": sent_jobs_total
+        "sent_jobs": sent_jobs_total,
+        "ai_filtered": ai_filtered_count
     }
