@@ -3,6 +3,7 @@
 import os
 import sys
 import traceback
+import threading
 import logging
 
 from flask import Flask, request
@@ -56,17 +57,22 @@ def receive_webhook():
 
 @app.route("/cron", methods=["GET", "POST"])
 def cron_task():
-    """Эндпоинт для внешнего cron. Парсит канал и рассылает вакансии."""
-    try:
-        import jobs as jobs_module
-        print("⏰ Cron запущен", flush=True)
-        stats = jobs_module.broadcast_to_all_users()
-        print(f"✅ Cron завершён: {stats}", flush=True)
-        return stats, 200
-    except Exception as e:
-        import traceback
-        print(f"🔥 Cron упал:\n{traceback.format_exc()}", flush=True)
-        return {"error": str(e)}, 500
+    """Мгновенный ответ + работа в фоне (cron-job.org не ждёт)."""
+    def background_job():
+        try:
+            import jobs as jobs_module
+            print("\u23F0 Cron: фоновая задача запущена", flush=True)
+            stats = jobs_module.broadcast_to_all_users()
+            print(f"\u2705 Cron завершён: {stats}", flush=True)
+        except Exception as e:
+            import traceback
+import threading
+            print(f"\U0001F525 Cron упал:\n{traceback.format_exc()}", flush=True)
+
+    thread = threading.Thread(target=background_job, daemon=True)
+    thread.start()
+    return {"status": "started", "message": "Работа идёт в фоне"}, 200
+
 
 
 if WEBHOOK_URL:
