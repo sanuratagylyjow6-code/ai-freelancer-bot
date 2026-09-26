@@ -56,7 +56,7 @@ SCORE: X | REASON: короткое_объяснение
 Без markdown, без других слов."""
 
     # Модель с большим лимитом
-    response = ask_ai(prompt, model="gemini-2.5-flash-lite", max_retries=2)
+    response = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
     if not response or "Ошибка ИИ" in response or "Лимит ИИ" in response:
         return None, None
 
