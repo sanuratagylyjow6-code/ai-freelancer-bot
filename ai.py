@@ -70,53 +70,71 @@ SCORE: X | REASON: короткое_объяснение
     return score, reason[:100]
 
 
-def generate_project(tz, project_type):
-    """Генерирует полный проект по ТЗ. project_type: 'bot', 'parser', 'automate'."""
+def generate_project(tz, project_type, max_fix_attempts=2):
+    """Генерирует проект + валидирует синтаксис. Если сломан — просит Gemini исправить."""
     if project_type == "bot":
         header = (
             "Ты — senior Python-разработчик. Создай ПОЛНЫЙ Telegram-бот по ТЗ клиента.\n"
-            "Требования:\n"
-            "- Используй библиотеку pyTelegramBotAPI (telebot).\n"
+            "КРИТИЧНО:\n"
+            "- Используй pyTelegramBotAPI (telebot).\n"
             "- Весь код в ОДНОМ файле.\n"
-            "- В начале файла напиши многострочный комментарий-инструкцию: "
-            "какие библиотеки установить (pip install ...), куда вставить BOT_TOKEN, как запустить.\n"
-            "- Учти все детали ТЗ: команды, обработку ошибок, сохранение данных (SQLite).\n"
-            "- Добавь короткие комментарии к ключевым местам.\n"
-            "- Никаких markdown-обёрток, только чистый Python-код.\n"
+            "- Первый блок — многострочный docstring с инструкцией (pip install, токен, запуск).\n"
+            "- ВСЕ print() должны быть СТРОГО валидными f-строками: f'текст {переменная}' "
+            "с обязательной буквой f и кавычками. НИКОГДА не пиши русские слова внутри {фигурных скобок}.\n"
+            "- Никаких markdown-обёрток.\n"
+            "- Код ДОЛЖЕН запускаться без SyntaxError.\n"
         )
     elif project_type == "parser":
         header = (
-            "Ты — senior Python-разработчик. Создай скрипт парсинга по ТЗ клиента.\n"
-            "Требования:\n"
-            "- Используй requests + BeautifulSoup.\n"
-            "- Весь код в ОДНОМ файле.\n"
-            "- В начале файла — многострочный комментарий-инструкция: "
-            "что установить, что настроить, как запустить.\n"
-            "- Результат сохраняй в CSV или JSON (в зависимости от ТЗ).\n"
-            "- Обработай ошибки сети через try/except.\n"
-            "- Никаких markdown-обёрток, только чистый Python-код.\n"
+            "Ты — senior Python-разработчик. Создай скрипт парсинга по ТЗ.\n"
+            "КРИТИЧНО:\n"
+            "- requests + BeautifulSoup.\n"
+            "- Один файл. Docstring-инструкция в начале.\n"
+            "- ВСЕ print() — валидные f-строки с буквой f.\n"
+            "- Никаких markdown-обёрток. Код запускается без SyntaxError.\n"
         )
-    else:  # automate
+    else:
         header = (
-            "Ты — senior Python-разработчик. Создай скрипт автоматизации по ТЗ клиента.\n"
-            "Требования:\n"
-            "- Используй только стандартные библиотеки или openpyxl/pandas если нужно.\n"
-            "- Весь код в ОДНОМ файле.\n"
-            "- В начале файла — многострочный комментарий-инструкция.\n"
-            "- Добавь понятные print() для отслеживания прогресса.\n"
-            "- Обработай ошибки.\n"
-            "- Никаких markdown-обёрток, только чистый Python-код.\n"
+            "Ты — senior Python-разработчик. Создай скрипт автоматизации по ТЗ.\n"
+            "КРИТИЧНО:\n"
+            "- Один файл. Docstring-инструкция в начале.\n"
+            "- ВСЕ print() — валидные f-строки с буквой f. "
+            "Русский текст ТОЛЬКО в обычных строках, НЕ в фигурных скобках.\n"
+            "- Никаких markdown-обёрток. Код запускается без SyntaxError.\n"
         )
 
     prompt = f"{header}\n\nТЗ клиента:\n{tz}"
-    result = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
-    if not result or "Ошибка ИИ" in result or "Лимит ИИ" in result:
+    code = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+    if not code or "Ошибка ИИ" in code or "Лимит ИИ" in code:
         return None
-    # Убираем markdown-обёртки, если Gemini их всё-таки добавил
+
     import re
-    result = re.sub(r"^```(?:python)?\s*", "", result)
-    result = re.sub(r"\s*```$", "", result)
-    return result.strip()
+    code = re.sub(r"^```(?:python)?\s*", "", code)
+    code = re.sub(r"\s*```$", "", code)
+    code = code.strip()
+
+    import ast
+    for attempt in range(max_fix_attempts):
+        try:
+            ast.parse(code)
+            return code
+        except SyntaxError as e:
+            print(f"⚠ SyntaxError на попытке {attempt+1}: {e}", flush=True)
+            fix_prompt = (
+                f"Твой предыдущий код содержит SyntaxError:\n{e}\n\n"
+                f"Вот код:\n{code}\n\n"
+                "Исправь ТОЛЬКО синтаксис. Верни полный рабочий код. "
+                "ВСЕ print() должны быть валидными (f-строки с буквой f и кавычками). "
+                "Никаких русских слов внутри фигурных скобок."
+            )
+            code = ask_ai(fix_prompt, model="gemini-3.5-flash-lite", max_retries=2)
+            if not code or "Ошибка ИИ" in code:
+                return None
+            code = re.sub(r"^```(?:python)?\s*", "", code)
+            code = re.sub(r"\s*```$", "", code)
+            code = code.strip()
+
+    return code
 
 
 def run_code(code_text):
