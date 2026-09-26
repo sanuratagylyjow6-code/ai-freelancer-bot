@@ -71,70 +71,79 @@ SCORE: X | REASON: короткое_объяснение
 
 
 def generate_project(tz, project_type, max_fix_attempts=2):
-    """Генерирует проект + валидирует синтаксис. Если сломан — просит Gemini исправить."""
-    if project_type == "bot":
-        header = (
-            "Ты — senior Python-разработчик. Создай ПОЛНЫЙ Telegram-бот по ТЗ клиента.\n"
-            "КРИТИЧНО:\n"
-            "- Используй pyTelegramBotAPI (telebot).\n"
-            "- Весь код в ОДНОМ файле.\n"
-            "- Первый блок — многострочный docstring с инструкцией (pip install, токен, запуск).\n"
-            "- ВСЕ print() должны быть СТРОГО валидными f-строками: f'текст {переменная}' "
-            "с обязательной буквой f и кавычками. НИКОГДА не пиши русские слова внутри {фигурных скобок}.\n"
-            "- Никаких markdown-обёрток.\n"
-            "- Код ДОЛЖЕН запускаться без SyntaxError.\n"
-        )
-    elif project_type == "parser":
-        header = (
-            "Ты — senior Python-разработчик. Создай скрипт парсинга по ТЗ.\n"
-            "КРИТИЧНО:\n"
-            "- requests + BeautifulSoup.\n"
-            "- Один файл. Docstring-инструкция в начале.\n"
-            "- ВСЕ print() — валидные f-строки с буквой f.\n"
-            "- Никаких markdown-обёрток. Код запускается без SyntaxError.\n"
-        )
-    else:
-        header = (
-            "Ты — senior Python-разработчик. Создай скрипт автоматизации по ТЗ.\n"
-            "КРИТИЧНО:\n"
-            "- Один файл. Docstring-инструкция в начале.\n"
-            "- ВСЕ print() — валидные f-строки с буквой f. "
-            "Русский текст ТОЛЬКО в обычных строках, НЕ в фигурных скобках.\n"
-            "- Никаких markdown-обёрток. Код запускается без SyntaxError.\n"
-        )
+    """Генерирует проект + валидирует синтаксис."""
+    headers = {
+        "bot": "Ты — senior Python-разработчик. Создай ПОЛНЫЙ Telegram-бот по ТЗ.\nКРИТИЧНО: один файл, docstring-инструкция в начале, все print() — валидные f-строки с буквой f и кавычками. Без markdown. Без SyntaxError.",
+        "parser": "Ты — senior Python-разработчик. Создай скрипт парсинга (requests + BeautifulSoup). Один файл, docstring-инструкция, все print() — валидные f-строки. Без SyntaxError.",
+        "automate": "Ты — senior Python-разработчик. Создай скрипт автоматизации. Один файл, docstring-инструкция, все print() — валидные f-строки. Русский текст ТОЛЬКО в обычных строках, не в фигурных скобках. Без SyntaxError.",
+    }
+    header = headers.get(project_type, headers["automate"])
+    prompt = header + "\n\nТЗ клиента:\n" + tz
 
-    prompt = f"{header}\n\nТЗ клиента:\n{tz}"
     code = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
     if not code or "Ошибка ИИ" in code or "Лимит ИИ" in code:
         return None
 
-    import re
+    import re, ast
     code = re.sub(r"^```(?:python)?\s*", "", code)
     code = re.sub(r"\s*```$", "", code)
     code = code.strip()
 
-    import ast
     for attempt in range(max_fix_attempts):
         try:
             ast.parse(code)
             return code
         except SyntaxError as e:
-            print(f"⚠ SyntaxError на попытке {attempt+1}: {e}", flush=True)
-            fix_prompt = (
-                f"Твой предыдущий код содержит SyntaxError:\n{e}\n\n"
-                f"Вот код:\n{code}\n\n"
-                "Исправь ТОЛЬКО синтаксис. Верни полный рабочий код. "
-                "ВСЕ print() должны быть валидными (f-строки с буквой f и кавычками). "
-                "Никаких русских слов внутри фигурных скобок."
-            )
+            print("SyntaxError попытка " + str(attempt+1) + ": " + str(e), flush=True)
+            fix_prompt = "Код содержит SyntaxError: " + str(e) + "\n\nВот код:\n" + code + "\n\nИсправь ТОЛЬКО синтаксис. Верни полный рабочий код."
             code = ask_ai(fix_prompt, model="gemini-3.5-flash-lite", max_retries=2)
             if not code or "Ошибка ИИ" in code:
                 return None
             code = re.sub(r"^```(?:python)?\s*", "", code)
             code = re.sub(r"\s*```$", "", code)
             code = code.strip()
-
     return code
+
+
+def edit_project(existing_code, tz_edit, project_type, max_fix_attempts=2):
+    """Дорабатывает существующий проект по правкам клиента."""
+    prompt = (
+        "Ты — senior Python-разработчик. Тебе дан РАБОЧИЙ код проекта.\n"
+        "Клиент просит внести правки. Верни ПОЛНЫЙ обновлённый код.\n\n"
+        "КРИТИЧНО:\n"
+        "- Не ломай существующую функциональность.\n"
+        "- Вноси ТОЛЬКО запрошенные правки.\n"
+        "- Один файл. Docstring-инструкция в начале.\n"
+        "- Все print() — валидные f-строки.\n"
+        "- Без markdown-обёрток. Без SyntaxError.\n\n"
+        "=== ТЕКУЩИЙ КОД ===\n" + existing_code + "\n=== КОНЕЦ ===\n\n"
+        "=== ПРАВКИ КЛИЕНТА ===\n" + tz_edit
+    )
+
+    code = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+    if not code or "Ошибка ИИ" in code or "Лимит ИИ" in code:
+        return None
+
+    import re, ast
+    code = re.sub(r"^```(?:python)?\s*", "", code)
+    code = re.sub(r"\s*```$", "", code)
+    code = code.strip()
+
+    for attempt in range(max_fix_attempts):
+        try:
+            ast.parse(code)
+            return code
+        except SyntaxError as e:
+            print("SyntaxError: " + str(e), flush=True)
+            fix_prompt = "Код с SyntaxError: " + str(e) + "\n\n" + code + "\n\nИсправь синтаксис."
+            code = ask_ai(fix_prompt, model="gemini-3.5-flash-lite", max_retries=2)
+            if not code or "Ошибка ИИ" in code:
+                return None
+            code = re.sub(r"^```(?:python)?\s*", "", code)
+            code = re.sub(r"\s*```$", "", code)
+            code = code.strip()
+    return code
+
 
 
 def run_code(code_text):

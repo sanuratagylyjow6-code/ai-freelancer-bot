@@ -463,14 +463,14 @@ def init_projects_table():
     conn.close()
 
 
-def save_project(user_id, ptype, tz, code):
-    """Сохраняет проект и возвращает его id."""
+def save_project(user_id, ptype, tz, code, parent_id=None):
+    """Сохраняет проект (или новую версию) и возвращает его id."""
     conn = get_conn()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     cursor.execute(
-        "INSERT INTO projects (user_id, ptype, tz, code, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
-        (user_id, ptype, tz, code, now)
+        "INSERT INTO projects (user_id, ptype, tz, code, created_at, parent_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
+        (user_id, ptype, tz, code, now, parent_id)
     )
     pid = cursor.fetchone()[0]
     conn.commit()
@@ -499,6 +499,20 @@ def get_project(pid, user_id):
     cursor = conn.cursor()
     cursor.execute(
         "SELECT ptype, tz, code FROM projects WHERE id = %s AND user_id = %s",
+        (pid, user_id)
+    )
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def get_project_with_parent(pid, user_id):
+    """Возвращает (id, ptype, tz, code, parent_id) или None."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, ptype, tz, code, parent_id FROM projects WHERE id = %s AND user_id = %s",
         (pid, user_id)
     )
     result = cursor.fetchone()

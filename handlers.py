@@ -6,11 +6,11 @@ from database import (
     save_user, get_user_stats, get_all_clients,
     save_task, update_task, get_user_tasks
 )
-from ai import ask_ai, run_code, auto_fix, generate_project
+from ai import ask_ai, run_code, auto_fix, generate_project, edit_project
 from parser import parse_quotes
 from jobs import fetch_jobs_from_channel
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
-                       save_project, get_user_projects, get_project)
+                       save_project, get_user_projects, get_project, get_project_with_parent)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS
 
 
@@ -380,3 +380,55 @@ def handle_download(message):
     file_bytes.name = file_name
     bot.send_document(message.chat.id, file_bytes, visible_file_name=file_name,
                       caption=f"📦 Проект #{pid} [{TYPE_NAMES.get(ptype, ptype)}]")
+
+
+@bot.message_handler(commands=['edit'])
+def handle_edit(message):
+    """Дорабатывает существующий проект: /edit <id> <правки>."""
+    try:
+        text = message.text.replace("/edit", "", 1).strip()
+        if not text:
+            bot.reply_to(message, "Формат: /edit <id> <правки>\nПример: /edit 5 добавь команду /menu")
+            return
+
+        parts = text.split(maxsplit=1)
+        try:
+            pid = int(parts[0])
+        except ValueError:
+            bot.reply_to(message, "Укажи числовой ID. Пример: /edit 5 добавь /menu")
+            return
+
+        if len(parts) < 2 or len(parts[1]) < 5:
+            bot.reply_to(message, "Опиши правки после ID. Пример: /edit 5 добавь inline-кнопки")
+            return
+
+        tz_edit = parts[1]
+        user_id = message.from_user.id
+        row = get_project_with_parent(pid, user_id)
+        if not row:
+            bot.reply_to(message, "Проект #" + str(pid) + " не найден.")
+            return
+
+        old_id, ptype, old_tz, old_code, parent_id = row
+        bot.reply_to(message, "Дорабатываю проект #" + str(pid) + "... 20-60 сек.")
+
+        new_code = edit_project(old_code, tz_edit, ptype)
+        if not new_code:
+            bot.reply_to(message, "ИИ не смог доработать. Попробуй позже.")
+            return
+
+        new_id = save_project(user_id, ptype, "[ред. #" + str(pid) + "] " + tz_edit, new_code, parent_id=pid)
+
+        file_name = TYPE_FILES.get(ptype, "project.py")
+        file_bytes = io.BytesIO(new_code.encode("utf-8"))
+        file_bytes.name = file_name
+        bot.send_document(
+            message.chat.id,
+            file_bytes,
+            visible_file_name=file_name,
+            caption="✅ Новая версия #" + str(new_id) + " (от #" + str(pid) + ")\nСкачать: /download " + str(new_id)
+        )
+
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, "Ошибка: " + traceback.format_exc()[-300:])
