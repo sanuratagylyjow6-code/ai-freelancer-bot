@@ -6,10 +6,11 @@ from database import (
     save_user, get_user_stats, get_all_clients,
     save_task, update_task, get_user_tasks
 )
-from ai import ask_ai, run_code, auto_fix
+from ai import ask_ai, run_code, auto_fix, generate_project
 from parser import parse_quotes
 from jobs import fetch_jobs_from_channel
-from database import save_jobs, search_jobs, set_filter, get_filter, clear_filter
+from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
+                       save_project, get_user_projects, get_project)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS
 
 
@@ -275,3 +276,107 @@ def handle_myfilter(message):
         return
     words = [w.strip() for w in keywords.split(",")]
     bot.reply_to(message, f"🎯 Твой фильтр:\n🔍 {' | '.join(words)}")
+
+
+# ============================================================
+# МОДУЛЬ ГЕНЕРАЦИИ ПРОЕКТОВ ДЛЯ КЛИЕНТОВ
+# ============================================================
+
+import io  # для передачи файла в Telegram
+
+TYPE_NAMES = {"bot": "Telegram-бот", "parser": "Парсер", "automate": "Автоматизация"}
+TYPE_FILES = {"bot": "bot.py", "parser": "parser.py", "automate": "automate.py"}
+
+
+def _handle_make(message, project_type):
+    """Общая логика для /make_bot, /make_parser, /automate."""
+    cmd = message.text.split()[0]  # /make_bot и т.п.
+    tz = message.text.replace(cmd, "", 1).strip()
+
+    if len(tz) < 15:
+        bot.reply_to(message, f"⚠ Опиши подробнее, что нужно.\nПример: {cmd} сделай бота для кофейни с меню и оплатой")
+        return
+
+    bot.reply_to(message, f"🧠 Генерирую {TYPE_NAMES[project_type]}... Это займёт 20-60 сек.")
+
+    try:
+        code = generate_project(tz, project_type)
+        if not code:
+            bot.reply_to(message, "⚠ ИИ не смог сгенерировать проект. Попробуй позже.")
+            return
+
+        user_id = message.from_user.id
+        pid = save_project(user_id, project_type, tz, code)
+
+        # 1. Отправляем файл
+        file_name = TYPE_FILES[project_type]
+        file_bytes = io.BytesIO(code.encode("utf-8"))
+        file_bytes.name = file_name
+        bot.send_document(
+            message.chat.id,
+            file_bytes,
+            visible_file_name=file_name,
+            caption=f"✅ {TYPE_NAMES[project_type]} готов!\n🆔 Проект #{pid}\n\nСкачать повторно: /download {pid}"
+        )
+
+        # 2. Превью кода
+        preview = code[:800]
+        bot.send_message(message.chat.id, f"👀 Превью:\n\n{preview}...")
+
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, f"🔥 Ошибка: {traceback.format_exc()[-300:]}")
+
+
+@bot.message_handler(commands=['make_bot'])
+def handle_make_bot(message):
+    _handle_make(message, "bot")
+
+
+@bot.message_handler(commands=['make_parser'])
+def handle_make_parser(message):
+    _handle_make(message, "parser")
+
+
+@bot.message_handler(commands=['automate'])
+def handle_automate(message):
+    _handle_make(message, "automate")
+
+
+@bot.message_handler(commands=['projects'])
+def handle_projects(message):
+    """Список проектов клиента."""
+    user_id = message.from_user.id
+    rows = get_user_projects(user_id, limit=10)
+    if not rows:
+        bot.reply_to(message, "У тебя пока нет проектов.\nСоздай первый: /make_bot, /make_parser или /automate")
+        return
+    lines = ["📦 Твои проекты:\n"]
+    for pid, ptype, tz, created in rows:
+        short_tz = tz[:50] + ("..." if len(tz) > 50 else "")
+        lines.append(f"#{pid} [{TYPE_NAMES.get(ptype, ptype)}] {short_tz}\n    📅 {created}")
+    lines.append("\nСкачать: /download <id>")
+    bot.reply_to(message, "\n".join(lines))
+
+
+@bot.message_handler(commands=['download'])
+def handle_download(message):
+    """Скачать проект повторно по id."""
+    try:
+        pid = int(message.text.replace("/download", "", 1).strip())
+    except ValueError:
+        bot.reply_to(message, "Укажи ID. Пример: /download 5")
+        return
+
+    user_id = message.from_user.id
+    row = get_project(pid, user_id)
+    if not row:
+        bot.reply_to(message, f"❌ Проект #{pid} не найден.")
+        return
+
+    ptype, tz, code = row
+    file_name = TYPE_FILES.get(ptype, "project.py")
+    file_bytes = io.BytesIO(code.encode("utf-8"))
+    file_bytes.name = file_name
+    bot.send_document(message.chat.id, file_bytes, visible_file_name=file_name,
+                      caption=f"📦 Проект #{pid} [{TYPE_NAMES.get(ptype, ptype)}]")

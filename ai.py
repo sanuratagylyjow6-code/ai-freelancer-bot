@@ -70,6 +70,55 @@ SCORE: X | REASON: короткое_объяснение
     return score, reason[:100]
 
 
+def generate_project(tz, project_type):
+    """Генерирует полный проект по ТЗ. project_type: 'bot', 'parser', 'automate'."""
+    if project_type == "bot":
+        header = (
+            "Ты — senior Python-разработчик. Создай ПОЛНЫЙ Telegram-бот по ТЗ клиента.\n"
+            "Требования:\n"
+            "- Используй библиотеку pyTelegramBotAPI (telebot).\n"
+            "- Весь код в ОДНОМ файле.\n"
+            "- В начале файла напиши многострочный комментарий-инструкцию: "
+            "какие библиотеки установить (pip install ...), куда вставить BOT_TOKEN, как запустить.\n"
+            "- Учти все детали ТЗ: команды, обработку ошибок, сохранение данных (SQLite).\n"
+            "- Добавь короткие комментарии к ключевым местам.\n"
+            "- Никаких markdown-обёрток, только чистый Python-код.\n"
+        )
+    elif project_type == "parser":
+        header = (
+            "Ты — senior Python-разработчик. Создай скрипт парсинга по ТЗ клиента.\n"
+            "Требования:\n"
+            "- Используй requests + BeautifulSoup.\n"
+            "- Весь код в ОДНОМ файле.\n"
+            "- В начале файла — многострочный комментарий-инструкция: "
+            "что установить, что настроить, как запустить.\n"
+            "- Результат сохраняй в CSV или JSON (в зависимости от ТЗ).\n"
+            "- Обработай ошибки сети через try/except.\n"
+            "- Никаких markdown-обёрток, только чистый Python-код.\n"
+        )
+    else:  # automate
+        header = (
+            "Ты — senior Python-разработчик. Создай скрипт автоматизации по ТЗ клиента.\n"
+            "Требования:\n"
+            "- Используй только стандартные библиотеки или openpyxl/pandas если нужно.\n"
+            "- Весь код в ОДНОМ файле.\n"
+            "- В начале файла — многострочный комментарий-инструкция.\n"
+            "- Добавь понятные print() для отслеживания прогресса.\n"
+            "- Обработай ошибки.\n"
+            "- Никаких markdown-обёрток, только чистый Python-код.\n"
+        )
+
+    prompt = f"{header}\n\nТЗ клиента:\n{tz}"
+    result = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+    if not result or "Ошибка ИИ" in result or "Лимит ИИ" in result:
+        return None
+    # Убираем markdown-обёртки, если Gemini их всё-таки добавил
+    import re
+    result = re.sub(r"^```(?:python)?\s*", "", result)
+    result = re.sub(r"\s*```$", "", result)
+    return result.strip()
+
+
 def run_code(code_text):
     namespace = {}
     try:

@@ -442,3 +442,66 @@ def mark_jobs_sent(user_id, job_ids):
     conn.commit()
     cursor.close()
     conn.close()
+
+
+def init_projects_table():
+    """Создаёт таблицу projects для сгенерированных проектов."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS projects (
+            id         SERIAL PRIMARY KEY,
+            user_id    BIGINT,
+            ptype      TEXT,
+            tz         TEXT,
+            code       TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def save_project(user_id, ptype, tz, code):
+    """Сохраняет проект и возвращает его id."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute(
+        "INSERT INTO projects (user_id, ptype, tz, code, created_at) VALUES (%s, %s, %s, %s, %s) RETURNING id",
+        (user_id, ptype, tz, code, now)
+    )
+    pid = cursor.fetchone()[0]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return pid
+
+
+def get_user_projects(user_id, limit=10):
+    """Список последних проектов пользователя."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, ptype, tz, created_at FROM projects WHERE user_id = %s ORDER BY id DESC LIMIT %s",
+        (user_id, limit)
+    )
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def get_project(pid, user_id):
+    """Возвращает (ptype, tz, code) или None."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT ptype, tz, code FROM projects WHERE id = %s AND user_id = %s",
+        (pid, user_id)
+    )
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
