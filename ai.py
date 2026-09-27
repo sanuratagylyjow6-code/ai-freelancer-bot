@@ -162,7 +162,7 @@ def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
     type_instructions = {
         "bot": (
             "Создай многофайловый Telegram-бот. Обязательные файлы:\n"
-            "- bot.py — точка входа, запуск polling\n"
+            "- bot.py — точка входа. ОБЯЗАТЕЛЬНО: поднимает простой HTTP-сервер на Flask, который отвечает на GET / текстом 'OK', и слушает порт из переменной окружения PORT (через app.run(host='0.0.0.0', port=int(os.getenv('PORT', 5000)))). Polling бота запускается В ОТДЕЛЬНОМ потоке через threading.Thread. Это нужно, чтобы Render видел открытый порт.\n"
             "- handlers.py — все @bot.message_handler\n"
             "- database.py — работа с SQLite\n"
             "- config.py — BOT_TOKEN и настройки\n"
