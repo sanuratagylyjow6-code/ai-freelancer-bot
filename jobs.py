@@ -80,6 +80,95 @@ def _parse_python_jobs_ru(raw_text, prefix):
     return jobs
 
 
+def _parse_job_python(raw_text, prefix):
+    """Формат job_python: Компания / Должность / Зарплата / Описание."""
+    lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+    if not lines:
+        return []
+
+    # Пропускаем теги (#senior, #удаленка, #300k)
+    meaningful = [l for l in lines if not l.startswith("#")]
+    if len(meaningful) < 2:
+        return []
+
+    company = meaningful[0]
+    title = meaningful[1]
+
+    # Описание — всё после второго блока
+    desc_start = 2
+    for i, line in enumerate(meaningful[2:], 2):
+        if line.startswith("\u2611") or line.startswith("-") or line.startswith("Чем"):
+            desc_start = i
+            break
+
+    description = " ".join(meaningful[desc_start:])
+    full_title = title + " — " + company
+
+    return [{
+        "job_uid": prefix + "_jp0",
+        "category": "Python",
+        "title": full_title[:200],
+        "description": description[:1500]
+    }]
+
+
+def _parse_freelance_zakazy(raw_text, prefix):
+    """Формат freelance_zakazy: 📌 заголовок, 📝 описание, 💳 бюджет."""
+    lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
+    if not lines:
+        return []
+
+    title = None
+    description = []
+    budget = ""
+    in_desc = False
+    in_budget = False
+
+    for line in lines:
+        # Заголовок после 📌
+        if line == "\U0001F4CC" and not title:
+            continue
+        if title is None and line != "\U0001F4CC" and line != "\U0001F4DD":
+            if not line.startswith("\U0001F4B3"):
+                title = line
+                continue
+
+        # Описание после 📝
+        if line == "\U0001F4DD":
+            in_desc = True
+            in_budget = False
+            continue
+        if line == "\U0001F4B3":
+            in_desc = False
+            in_budget = True
+            continue
+
+        if in_desc:
+            if line in ("\u3030\uFE0F", "\u3030", ""):
+                continue
+            description.append(line)
+        elif in_budget:
+            budget += " " + line
+
+    # Чистим бюджет от символов
+    budget = budget.replace("Бюджет:", "").replace("\u3030\uFE0F", "").strip()
+    budget = " ".join(budget.split())
+
+    if not title:
+        return []
+
+    full_desc = " ".join(description)
+    if budget:
+        full_desc = full_desc + " | Бюджет: " + budget
+
+    return [{
+        "job_uid": prefix + "_fz0",
+        "category": "Фриланс",
+        "title": title[:200],
+        "description": full_desc[:1500]
+    }]
+
+
 def _parse_single_job(raw_text, prefix):
     """Универсальный парсер для каналов с 1 вакансией на пост."""
     lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
@@ -148,27 +237,32 @@ def _parse_single_job(raw_text, prefix):
              "title": title[:200], "description": description}]
 
 
-def fetch_jobs_from_channel(channel, max_posts=5):
-    """Универсальный парсер: определяет формат канала по имени."""
+def fetch_jobs_from_channel(channel, max_posts=3):
+    """Универсальный парсер: определяет формат канала."""
     try:
         posts = _fetch_posts(channel, max_posts)
     except Exception as e:
-        print(f"⚠ Не смог получить посты из {channel}: {e}")
+        print("Не смог получить посты из " + channel + ": " + str(e))
         return []
 
     all_jobs = []
     for post_id, posted_at, raw_text in posts:
-        prefix = post_id.replace("/", "_") or f"{channel}_{datetime.now().timestamp()}"
+        prefix = post_id.replace("/", "_") or channel
 
         if channel == "allgigs":
             jobs = _parse_allgigs(raw_text, prefix)
         elif channel == "python_jobs_ru":
             jobs = _parse_python_jobs_ru(raw_text, prefix)
+        elif channel == "freelance_zakazy":
+            jobs = _parse_freelance_zakazy(raw_text, prefix)
+        elif channel == "job_python":
+            jobs = _parse_job_python(raw_text, prefix)
         else:
+            # job_python, devjobs, remote_python_jobs, pythonrabota — одиночные
             jobs = _parse_single_job(raw_text, prefix)
 
         for j in jobs:
-            j["post_url"] = f"https://t.me/{post_id}"
+            j["post_url"] = "https://t.me/" + post_id
             j["posted_at"] = posted_at
 
         all_jobs.extend(jobs)
@@ -181,7 +275,7 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
     import database
     from core import bot
 
-    channels = ["python_jobs_ru", "remote_python_jobs", "pythonrabota"]
+    channels = ["python_jobs_ru", "remote_python_jobs", "pythonrabota", "job_python", "freelance_zakazy", "devjobs"]
     total_parsed = 0
     total_saved = 0
 
