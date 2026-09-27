@@ -26,6 +26,7 @@ database.init_jobs_table()
 database.init_filters_table()
 database.init_sent_table()
 database.init_projects_table()
+database.init_full_projects_table()
 
 SECRET = os.environ.get("WEBHOOK_SECRET", "change_me_secret")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")

@@ -146,6 +146,110 @@ def edit_project(existing_code, tz_edit, project_type, max_fix_attempts=2):
 
 
 
+def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
+    """Генерирует многофайловый проект. Возвращает dict {filename: code} или None."""
+
+    # Формат ответа — разделители между файлами
+    format_instruction = (
+        "Верни файлы в СТРОГО таком формате (без markdown):\n"
+        "=== FILE: filename.py ===\n"
+        "<содержимое файла>\n"
+        "=== FILE: another.py ===\n"
+        "<содержимое>\n"
+        "=== END PROJECT ===\n\n"
+    )
+
+    type_instructions = {
+        "bot": (
+            "Создай многофайловый Telegram-бот. Обязательные файлы:\n"
+            "- bot.py — точка входа, запуск polling\n"
+            "- handlers.py — все @bot.message_handler\n"
+            "- database.py — работа с SQLite\n"
+            "- config.py — BOT_TOKEN и настройки\n"
+            "- requirements.txt — зависимости (pip install -r)\n"
+            "- README.md — краткая инструкция запуска\n"
+            "Используй pyTelegramBotAPI."
+        ),
+        "parser": (
+            "Создай многофайловый парсер. Обязательные файлы:\n"
+            "- main.py — точка входа\n"
+            "- parser.py — логика парсинга (requests + BeautifulSoup)\n"
+            "- config.py — настройки (URL, селекторы)\n"
+            "- requirements.txt\n"
+            "- README.md\n"
+        ),
+        "automate": (
+            "Создай многофайловый скрипт автоматизации. Обязательные файлы:\n"
+            "- main.py — точка входа\n"
+            "- logic.py — бизнес-логика\n"
+            "- config.py — настройки\n"
+            "- requirements.txt\n"
+            "- README.md\n"
+        ),
+    }
+
+    prompt = (
+        "Ты — senior Python-разработчик. " + type_instructions[project_type] + "\n\n"
+        "КРИТИЧНО:\n"
+        "- Все .py файлы — валидные f-строки в print() с буквой f и кавычками.\n"
+        "- Все import'ы между своими файлами должны работать (from config import ...).\n"
+        "- Без markdown-обёрток. Без SyntaxError.\n"
+        "- " + format_instruction + "\n"
+        "=== ТЗ КЛИЕНТА ===\n" + tz
+    )
+
+    response = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+    if not response or "Ошибка ИИ" in response or "Лимит ИИ" in response:
+        return None
+
+    # Парсим ответ на файлы
+    import re
+    files = {}
+    pattern = r"=== FILE:\s*(.+?)\s*===\s*\n(.*?)(?==== FILE:|=== END PROJECT|$)"
+    for match in re.finditer(pattern, response, re.DOTALL):
+        name = match.group(1).strip()
+        code = match.group(2).strip()
+        if name and code:
+            files[name] = code
+
+    if not files:
+        return None
+
+    # Валидируем .py файлы
+    import ast
+    for attempt in range(max_fix_attempts):
+        broken = None
+        for name, code in files.items():
+            if name.endswith(".py"):
+                try:
+                    ast.parse(code)
+                except SyntaxError as e:
+                    broken = (name, code, e)
+                    break
+        if broken is None:
+            return files  # всё ок
+
+        bad_name, bad_code, err = broken
+        print("SyntaxError в " + bad_name + ": " + str(err), flush=True)
+        fix_prompt = (
+            "Файл " + bad_name + " содержит SyntaxError: " + str(err) + "\n\n"
+            "Вот его содержимое:\n" + bad_code + "\n\n"
+            "Исправь ТОЛЬКО синтаксис. Верни весь проект заново в том же формате "
+            "(=== FILE: имя === ... === END PROJECT ===)."
+        )
+        response = ask_ai(fix_prompt, model="gemini-3.5-flash-lite", max_retries=2)
+        if not response or "Ошибка ИИ" in response:
+            return files  # вернём как есть
+        files = {}
+        for match in re.finditer(pattern, response, re.DOTALL):
+            name = match.group(1).strip()
+            code = match.group(2).strip()
+            if name and code:
+                files[name] = code
+
+    return files
+
+
 def run_code(code_text):
     namespace = {}
     try:

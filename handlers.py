@@ -6,11 +6,12 @@ from database import (
     save_user, get_user_stats, get_all_clients,
     save_task, update_task, get_user_tasks
 )
-from ai import ask_ai, run_code, auto_fix, generate_project, edit_project
+from ai import ask_ai, run_code, auto_fix, generate_project, edit_project, generate_full_project
 from parser import parse_quotes
 from jobs import fetch_jobs_from_channel
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
-                       save_project, get_user_projects, get_project, get_project_with_parent)
+                       save_project, get_user_projects, get_project, get_project_with_parent,
+                       save_full_project, get_user_full_projects, get_full_project)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS
 
 
@@ -432,3 +433,106 @@ def handle_edit(message):
     except Exception as e:
         import traceback
         bot.reply_to(message, "Ошибка: " + traceback.format_exc()[-300:])
+
+
+# ============================================================
+# МНОГОФАЙЛОВЫЕ ПРОЕКТЫ (ZIP-АРХИВЫ)
+# ============================================================
+
+import zipfile
+
+def _detect_project_type(tz):
+    """Определяет тип проекта по ключевым словам в ТЗ."""
+    low = tz.lower()
+    if any(w in low for w in ["парс", "scrap", "спарси", "собрать данные"]):
+        return "parser"
+    if any(w in low for w in ["бот", "bot", "телеграм", "telegram"]):
+        return "bot"
+    return "automate"
+
+
+def _make_zip(files_dict):
+    """Создаёт ZIP-архив из dict {filename: code}. Возвращает io.BytesIO."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for name, code in files_dict.items():
+            zf.writestr(name, code)
+    buf.seek(0)
+    return buf
+
+
+@bot.message_handler(commands=['make_full'])
+def handle_make_full(message):
+    """Генерирует многофайловый проект и отправляет ZIP-архив."""
+    tz = message.text.replace("/make_full", "", 1).strip()
+    if len(tz) < 15:
+        bot.reply_to(message, "Опиши подробнее. Пример: /make_full бот для кофейни с меню и оплатой")
+        return
+
+    ptype = _detect_project_type(tz)
+    bot.reply_to(message, "🧠 Генерирую многофайловый проект (" + ptype + ")... 40-90 сек.")
+
+    try:
+        files = generate_full_project(tz, ptype)
+        if not files:
+            bot.reply_to(message, "⚠ ИИ не смог сгенерировать проект.")
+            return
+
+        user_id = message.from_user.id
+        pid = save_full_project(user_id, tz, files)
+
+        # Формируем краткое резюме
+        file_list = "\n".join(["  • " + n for n in sorted(files.keys())])
+        zip_buf = _make_zip(files)
+        zip_name = "project_" + str(pid) + ".zip"
+
+        bot.send_document(
+            message.chat.id,
+            zip_buf,
+            visible_file_name=zip_name,
+            caption="✅ Многофайловый проект #" + str(pid) + " готов!\n\n📁 Файлы:\n" + file_list + "\n\nСкачать: /dl_full " + str(pid)
+        )
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, "🔥 Ошибка: " + traceback.format_exc()[-300:])
+
+
+@bot.message_handler(commands=['myfulls'])
+def handle_myfulls(message):
+    """Список многофайловых проектов."""
+    user_id = message.from_user.id
+    rows = get_user_full_projects(user_id, limit=10)
+    if not rows:
+        bot.reply_to(message, "У тебя нет многофайловых проектов.\nСоздай: /make_full бот для ...")
+        return
+    lines = ["📦 Твои ZIP-проекты:\n"]
+    for pid, tz, created in rows:
+        short_tz = tz[:60] + ("..." if len(tz) > 60 else "")
+        lines.append("#" + str(pid) + " " + short_tz + "\n    📅 " + created)
+    lines.append("\nСкачать: /dl_full <id>")
+    bot.reply_to(message, "\n".join(lines))
+
+
+@bot.message_handler(commands=['dl_full'])
+def handle_dl_full(message):
+    """Скачать ZIP-проект по id."""
+    try:
+        pid = int(message.text.replace("/dl_full", "", 1).strip())
+    except ValueError:
+        bot.reply_to(message, "Укажи ID. Пример: /dl_full 3")
+        return
+
+    user_id = message.from_user.id
+    files = get_full_project(pid, user_id)
+    if not files:
+        bot.reply_to(message, "❌ Проект #" + str(pid) + " не найден.")
+        return
+
+    zip_buf = _make_zip(files)
+    file_list = "\n".join(["  • " + n for n in sorted(files.keys())])
+    bot.send_document(
+        message.chat.id,
+        zip_buf,
+        visible_file_name="project_" + str(pid) + ".zip",
+        caption="📦 Проект #" + str(pid) + "\n\n📁 Файлы:\n" + file_list
+    )

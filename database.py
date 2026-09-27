@@ -519,3 +519,69 @@ def get_project_with_parent(pid, user_id):
     cursor.close()
     conn.close()
     return result
+
+
+def init_full_projects_table():
+    """Таблица для многофайловых проектов."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS full_projects (
+            id         SERIAL PRIMARY KEY,
+            user_id    BIGINT,
+            tz         TEXT,
+            files_json TEXT,
+            created_at TEXT
+        )
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def save_full_project(user_id, tz, files_dict):
+    """Сохраняет многофайловый проект (files — dict {name: code})."""
+    import json
+    files_json = json.dumps(files_dict, ensure_ascii=False)
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute(
+        "INSERT INTO full_projects (user_id, tz, files_json, created_at) VALUES (%s, %s, %s, %s) RETURNING id",
+        (user_id, tz, files_json, now)
+    )
+    pid = cursor.fetchone()[0]
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return pid
+
+
+def get_user_full_projects(user_id, limit=10):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, tz, created_at FROM full_projects WHERE user_id = %s ORDER BY id DESC LIMIT %s",
+        (user_id, limit)
+    )
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def get_full_project(pid, user_id):
+    """Возвращает dict {filename: code} или None."""
+    import json
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT files_json FROM full_projects WHERE id = %s AND user_id = %s",
+        (pid, user_id)
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    if not row:
+        return None
+    return json.loads(row[0])
