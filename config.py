@@ -11,3 +11,6 @@ DB_PASSWORD = os.environ.get("DB_PASSWORD")
 AI_MODEL = "gemini-3.5-flash-lite"
 MAX_ATTEMPTS = 3
 TELEGRAM_MAX_LEN = 4000
+
+
+GITHUB_USERNAME = os.environ.get("GITHUB_USERNAME", "")

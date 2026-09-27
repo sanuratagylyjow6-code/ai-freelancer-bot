@@ -536,3 +536,86 @@ def handle_dl_full(message):
         visible_file_name="project_" + str(pid) + ".zip",
         caption="📦 Проект #" + str(pid) + "\n\n📁 Файлы:\n" + file_list
     )
+
+
+# ============================================================
+# АВТОДЕПЛОЙ НА GITHUB + RENDER
+# ============================================================
+
+from deployer import deploy_project
+
+import time
+
+
+def _safe_repo_name(pid, ptype):
+    """Генерирует безопасное имя репозитория."""
+    return "aifreelancer-" + ptype + "-" + str(pid) + "-" + str(int(time.time()))
+
+
+@bot.message_handler(commands=['deploy'])
+def handle_deploy(message):
+    """Деплоит проект на GitHub + даёт ссылку на Render."""
+    try:
+        text = message.text.replace("/deploy", "", 1).strip()
+        if not text:
+            bot.reply_to(message, "Формат: /deploy <id>\nПример: /deploy 5\n(работает для /make_full проектов)")
+            return
+
+        try:
+            pid = int(text.split()[0])
+        except ValueError:
+            bot.reply_to(message, "Укажи ID. Пример: /deploy 5")
+            return
+
+        user_id = message.from_user.id
+        files = get_full_project(pid, user_id)
+        if not files:
+            bot.reply_to(message, "Проект #" + str(pid) + " не найден среди многофайловых.\nСначала создай через /make_full.")
+            return
+
+        bot.reply_to(message, "🚀 Деплою на GitHub... Это займёт 10-30 сек.")
+
+        rows = get_user_full_projects(user_id, limit=20)
+        tz = "проект"
+        ptype = "bot"
+        for fid, ftz, _ in rows:
+            if fid == pid:
+                tz = ftz
+                break
+
+        if any("bot.py" in k for k in files.keys()):
+            ptype = "bot"
+        elif any("parser.py" in k for k in files.keys()):
+            ptype = "parser"
+        else:
+            ptype = "automate"
+
+        repo_name = _safe_repo_name(pid, ptype)
+        result = deploy_project(repo_name, files, tz, ptype)
+
+        if not result["ok"]:
+            bot.reply_to(message, "❌ Ошибка деплоя: " + result["error"])
+            return
+
+        lines = [
+            "✅ Проект загружен на GitHub!",
+            "",
+            "📦 Репозиторий:",
+            result["repo_url"],
+            "",
+            "🚀 Deploy to Render (одна кнопка):",
+            result["deploy_url"],
+            "",
+            "📋 Что делать:",
+            "1. Открой ссылку Deploy to Render",
+            "2. Авторизуйся в Render (если нужно)",
+            "3. Введи BOT_TOKEN от @BotFather",
+            "4. Дождись билда (~2 мин)",
+            "",
+            "📁 Файлов загружено: " + str(result["uploaded"]) + "/" + str(result["total"]),
+        ]
+        bot.reply_to(message, "\n".join(lines))
+
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, "🔥 Ошибка: " + traceback.format_exc()[-300:])
