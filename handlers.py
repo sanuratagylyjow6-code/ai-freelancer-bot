@@ -8,7 +8,7 @@ from database import (
 )
 from ai import ask_ai, run_code, auto_fix, generate_project, edit_project, generate_full_project
 from parser import parse_quotes
-from jobs import fetch_jobs_from_channel
+from jobs import fetch_from_telegram, fetch_all_sources
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
                        save_project, get_user_projects, get_project, get_project_with_parent,
                        save_full_project, get_user_full_projects, get_full_project)
@@ -241,7 +241,7 @@ def handle_find(message):
     bot.reply_to(message, "🔍 Сканирую каналы...")
 
     try:
-        jobs = fetch_jobs_from_channel("allgigs", max_posts=5)
+        jobs = fetch_from_telegram("allgigs", max_posts=5)
         if not jobs:
             bot.reply_to(message, "😔 Ничего не нашлось.")
             return
