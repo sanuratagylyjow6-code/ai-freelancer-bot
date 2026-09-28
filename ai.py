@@ -15,8 +15,13 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def ask_ai(prompt, model=None, max_retries=3):
-    """Отправляет промпт в Gemini. Retry + fallback модель при 503/429."""
-    models_to_try = [model or AI_MODEL, "gemini-2.5-flash-lite", "gemini-2.5-flash"]
+    """Отправляет промпт в Gemini. Retry + fallback через -latest алиасы."""
+    # Основная + 2 fallback (алиасы -latest НИКОГДА не устаревают)
+    models_to_try = [
+        model or AI_MODEL,           # gemini-3.5-flash-lite
+        "gemini-flash-lite-latest",  # lite-алиас, всегда актуальный
+        "gemini-flash-latest",       # универсальный алиас
+    ]
     last_error = None
 
     for m in models_to_try:
@@ -42,14 +47,15 @@ def ask_ai(prompt, model=None, max_retries=3):
                     time.sleep(wait)
                     continue
 
-                # Другие ошибки — короче пауза
+                # Другие ошибки (404 модель устарела) — сразу к следующей модели
+                if "404" in err_str or "NOT_FOUND" in err_str:
+                    print("Модель " + m + " недоступна, fallback", flush=True)
+                    break
+
                 if attempt < max_retries:
                     time.sleep(2)
 
-        # Если модель не ответила совсем — пробуем следующую
-        print("Модель " + m + " не отвечает, переключаюсь", flush=True)
-
-    return "После всех попыток: " + str(last_error)[:100]
+    return "После всех попыток: " + str(last_error)[:150]
 
 
 def evaluate_job_relevance(title, description, keywords):
