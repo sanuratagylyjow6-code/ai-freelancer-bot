@@ -11,7 +11,8 @@ from parser import parse_quotes
 from jobs import fetch_from_telegram, fetch_all_sources
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
                        save_project, get_user_projects, get_project, get_project_with_parent,
-                       save_full_project, get_user_full_projects, get_full_project)
+                       save_full_project, get_user_full_projects, get_full_project,
+                       search_jobs_full, get_quick_stats)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS, OWNER_ID
 
 
@@ -236,36 +237,91 @@ def echo_all(message):
 
 @bot.message_handler(commands=['find'])
 def handle_find(message):
-    """Ищет заказы в Telegram-каналах и сохраняет в БД."""
+    """Ищет заказы во ВСЕХ источниках и сохраняет в БД."""
     keyword = message.text.replace("/find", "", 1).strip()
-    bot.reply_to(message, "🔍 Сканирую каналы...")
+    bot.reply_to(message, "Сканирую все источники... 30-60 сек.")
 
     try:
-        jobs = fetch_from_telegram("allgigs", max_posts=5)
+        jobs = fetch_all_sources()
         if not jobs:
-            bot.reply_to(message, "😔 Ничего не нашлось.")
+            bot.reply_to(message, "Ничего не нашлось.")
             return
 
-        new_count = save_jobs(jobs, "allgigs")
+        new_count = 0
+        by_channel = {}
+        for j in jobs:
+            ch = j.get("channel", "unknown")
+            by_channel.setdefault(ch, []).append(j)
+        for ch, ch_jobs in by_channel.items():
+            new_count += save_jobs(ch_jobs, ch)
+
         total = len(jobs)
-        bot.reply_to(message, f"✅ Найдено {total} вакансий ({new_count} новых)")
+        bot.reply_to(message, "Найдено " + str(total) + " вакансий (" + str(new_count) + " новых).")
 
         if keyword:
-            results = search_jobs(keyword, limit=10)
+            results = search_jobs_full(keyword, limit=10)
             if not results:
-                bot.reply_to(message, f"🔍 По запросу '{keyword}' ничего нет.")
+                bot.reply_to(message, "По запросу '" + keyword + "' ничего нет.")
                 return
-
-            lines = [f"🎯 Найдено {len(results)} по запросу '{keyword}':\n"]
-            for cat, title, desc, url, date in results:
-                lines.append(f"[{cat}] {title}")
-                lines.append(f"   {desc[:150]}...")
-                lines.append(f"   🔗 {url}\n")
+            lines = ["Найдено " + str(len(results)) + " по '" + keyword + "':\n"]
+            for jid, ch, cat, title, desc, url in results:
+                lines.append("[" + cat + "] " + title)
+                lines.append("   " + desc[:120] + "...")
+                lines.append("   " + url + "\n")
             send_code(message, "\n".join(lines))
-
     except Exception as e:
         import traceback
-        bot.reply_to(message, f"🔥 Ошибка в /find:\n{traceback.format_exc()[-500:]}")
+        bot.reply_to(message, "Ошибка: " + traceback.format_exc()[-300:])
+
+
+@bot.message_handler(commands=['search'])
+def handle_search(message):
+    """Поиск по всей БД. /search <слово>"""
+    keyword = message.text.replace("/search", "", 1).strip()
+    if len(keyword) < 2:
+        bot.reply_to(message, "Формат: /search <слово>")
+        return
+
+    results = search_jobs_full(keyword, limit=15)
+    if not results:
+        bot.reply_to(message, "По '" + keyword + "' ничего нет.")
+        return
+
+    lines = ["Найдено " + str(len(results)) + " по '" + keyword + "':\n"]
+    for jid, ch, cat, title, desc, url in results:
+        lines.append("[" + cat + "] " + title)
+        lines.append("   " + desc[:120] + "...")
+        lines.append("   " + url + "\n")
+    send_code(message, "\n".join(lines))
+
+
+@bot.message_handler(commands=['stats'])
+def handle_stats_bot(message):
+    """Быстрая статистика бота."""
+    try:
+        s = get_quick_stats()
+        lines = [
+            "📊 Статистика бота",
+            "",
+            "📋 Всего вакансий: " + str(s["total"]),
+            "📅 За сегодня: " + str(s["today"]),
+            "📆 За 7 дней: " + str(s["week"]),
+            "📤 Отправлено тебе: " + str(s["sent"]),
+            "",
+            "📦 Проектов: " + str(s["projects"]) + " (" + str(s["zips"]) + " ZIP)",
+            "",
+            "🏆 Топ-каналы:",
+        ]
+        for ch, cnt in s["top_channels"]:
+            lines.append("  @" + ch + " — " + str(cnt))
+        lines.append("")
+        lines.append("🌐 Дашборд: https://ai-freelancer-bot.onrender.com/dashboard")
+        bot.reply_to(message, "\n".join(lines))
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, "Ошибка: " + traceback.format_exc()[-300:])
+
+
 
 
 @bot.message_handler(commands=['track'])

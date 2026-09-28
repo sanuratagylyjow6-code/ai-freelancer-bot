@@ -160,7 +160,7 @@ def init_jobs_table():
 
 
 def save_jobs(jobs_list, channel):
-    """Сохраняет новые вакансии. Возвращает количество НОВЫХ."""
+    """Сохраняет вакансии. Пропускает дубликаты по (title, post_url)."""
     conn = get_conn()
     cursor = conn.cursor()
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -168,6 +168,15 @@ def save_jobs(jobs_list, channel):
 
     for job in jobs_list:
         try:
+            # Проверка: есть ли уже такая вакансия по title + post_url
+            cursor.execute(
+                "SELECT id FROM found_jobs WHERE title = %s AND post_url = %s LIMIT 1",
+                (job["title"], job.get("post_url", ""))
+            )
+            existing = cursor.fetchone()
+            if existing:
+                continue  # пропускаем дубликат
+
             cursor.execute("""
                 INSERT INTO found_jobs (job_uid, channel, category, title, description, post_url, posted_at, found_at)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
@@ -177,15 +186,15 @@ def save_jobs(jobs_list, channel):
                 job["category"],
                 job["title"],
                 job["description"],
-                job["post_url"],
-                job["posted_at"],
+                job.get("post_url", ""),
+                job.get("posted_at", ""),
                 now
             ))
             new_count += 1
         except psycopg2.errors.UniqueViolation:
             conn.rollback()
         except Exception as e:
-            print(f"\u26A0 Ошибка сохранения: {e}")
+            print("Ошибка сохранения: " + str(e))
             conn.rollback()
 
     conn.commit()
@@ -655,3 +664,55 @@ def get_dashboard_stats():
     cursor.close()
     conn.close()
     return stats
+
+
+def search_jobs_full(keyword, limit=20):
+    """Поиск по title/description (регистронезависимый)."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, channel, category, title, description, post_url
+        FROM found_jobs
+        WHERE LOWER(title) LIKE %s OR LOWER(description) LIKE %s
+        ORDER BY id DESC
+        LIMIT %s
+    """, ("%" + keyword.lower() + "%", "%" + keyword.lower() + "%", limit))
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def get_quick_stats():
+    """Быстрая статистика для /stats."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    s = {}
+
+    cursor.execute("SELECT COUNT(*) FROM found_jobs")
+    s["total"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM found_jobs WHERE found_at::timestamp > NOW() - INTERVAL '1 day'")
+    s["today"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM found_jobs WHERE found_at::timestamp > NOW() - INTERVAL '7 days'")
+    s["week"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(DISTINCT job_id) FROM sent_notifications")
+    s["sent"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM projects")
+    s["projects"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM full_projects")
+    s["zips"] = cursor.fetchone()[0]
+
+    cursor.execute("""
+        SELECT channel, COUNT(*) FROM found_jobs
+        GROUP BY channel ORDER BY COUNT(*) DESC LIMIT 3
+    """)
+    s["top_channels"] = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+    return s
