@@ -12,7 +12,8 @@ from jobs import fetch_from_telegram, fetch_all_sources
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
                        save_project, get_user_projects, get_project, get_project_with_parent,
                        save_full_project, get_user_full_projects, get_full_project,
-                       search_jobs_full, get_quick_stats)
+                       search_jobs_full, get_quick_stats, parse_filter_keywords,
+                       save_note, get_user_notes)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS, OWNER_ID
 
 
