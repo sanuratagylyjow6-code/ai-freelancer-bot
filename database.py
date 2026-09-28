@@ -815,3 +815,17 @@ def get_user_notes(user_id, limit=20):
     cursor.close()
     conn.close()
     return result
+
+
+def get_job_by_id(job_id):
+    """Возвращает вакансию по ID: (id, channel, category, title, description, post_url)."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, channel, category, title, description, post_url
+        FROM found_jobs WHERE id = %s
+    """, (job_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result

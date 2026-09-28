@@ -274,6 +274,51 @@ def classify_job(title, description):
     return "Other"
 
 
+def generate_apply_draft(title, description, category):
+    """Генерирует черновик письма клиенту по вакансии."""
+    prompt = (
+        "Ты — Python-разработчик-фрилансер. Напиши КОРОТКОЕ (до 120 слов) сообщение "
+        "клиенту по вакансии. Стиль — уверенный, конкретный, без воды.\n\n"
+        "Структура:\n"
+        "1. Приветствие (1 строка)\n"
+        "2. Понимание задачи (1 строка)\n"
+        "3. Что могу сделать (2-3 пункта)\n"
+        "4. Опыт с похожими проектами (1 строка)\n"
+        "5. Вопрос или предложение\n\n"
+        "Категория: " + (category or "разработка") + "\n"
+        "Вакансия: " + title + "\n"
+        "Описание: " + description[:500] + "\n\n"
+        "Пиши от первого лица. Русский язык. Без markdown. Только текст письма."
+    )
+    return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+
+
+def evaluate_budget(title, description, category):
+    """Оценивает адекватность бюджета. Возвращает (verdict, reason)."""
+    prompt = (
+        "Оцени бюджет вакансии для фрилансера-разработчика.\n\n"
+        "Вакансия: " + title + "\n"
+        "Описание: " + description[:500] + "\n\n"
+        "Ответь СТРОГО одной строкой:\n"
+        "BUDGET: <adequate|low|high|unclear> | REASON: <коротко до 80 символов>\n\n"
+        "где:\n"
+        "adequate — ставка адекватна рынку\n"
+        "low — явно мало за эту работу\n"
+        "high — щедро, стоит брать срочно\n"
+        "unclear — бюджет не указан\n\n"
+        "Без других слов."
+    )
+    result = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=1)
+    if not result:
+        return ("unclear", "")
+    import re
+    m = re.search(r"BUDGET:\s*(\w+)", result)
+    verdict = m.group(1).lower() if m else "unclear"
+    rm = re.search(r"REASON:\s*(.+?)(?:$|\n)", result)
+    reason = rm.group(1).strip()[:100] if rm else ""
+    return (verdict, reason)
+
+
 def run_code(code_text):
     namespace = {}
     try:

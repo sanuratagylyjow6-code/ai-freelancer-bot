@@ -6,14 +6,14 @@ from database import (
     save_user, get_user_stats, get_all_clients,
     save_task, update_task, get_user_tasks
 )
-from ai import ask_ai, run_code, auto_fix, generate_project, edit_project, generate_full_project
+from ai import (ask_ai, run_code, auto_fix, generate_project, edit_project, generate_full_project, generate_apply_draft, evaluate_budget)
 from parser import parse_quotes
 from jobs import fetch_from_telegram, fetch_all_sources
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
                        save_project, get_user_projects, get_project, get_project_with_parent,
                        save_full_project, get_user_full_projects, get_full_project,
                        search_jobs_full, get_quick_stats, parse_filter_keywords,
-                       save_note, get_user_notes)
+                       save_note, get_user_notes, get_job_by_id)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS, OWNER_ID
 
 
@@ -751,3 +751,63 @@ def handle_notes(message):
         lines.append("   💬 " + note)
         lines.append("   📅 " + created + "\n")
     bot.reply_to(message, "\n".join(lines))
+
+
+@bot.message_handler(commands=['apply'])
+def handle_apply(message):
+    """Генерирует черновик письма клиенту. /apply <job_id>"""
+    try:
+        jid = int(message.text.replace("/apply", "", 1).strip())
+    except ValueError:
+        bot.reply_to(message, "Формат: /apply <job_id>. Пример: /apply 5")
+        return
+
+    row = get_job_by_id(jid)
+    if not row:
+        bot.reply_to(message, "Вакансия #" + str(jid) + " не найдена.")
+        return
+
+    _, channel, category, title, description, url = row
+    bot.reply_to(message, "Пишу черновик письма... 15-30 сек.")
+
+    draft = generate_apply_draft(title, description, category)
+    if not draft:
+        bot.reply_to(message, "Не получилось сгенерировать.")
+        return
+
+    text = (
+        "Черновик для #" + str(jid) + "\n\n" +
+        draft + "\n\n" +
+        "Ссылка на вакансию: " + url
+    )
+    send_code(message, text)
+
+
+@bot.message_handler(commands=['budget'])
+def handle_budget(message):
+    """Оценивает бюджет вакансии. /budget <job_id>"""
+    try:
+        jid = int(message.text.replace("/budget", "", 1).strip())
+    except ValueError:
+        bot.reply_to(message, "Формат: /budget <job_id>. Пример: /budget 5")
+        return
+
+    row = get_job_by_id(jid)
+    if not row:
+        bot.reply_to(message, "Вакансия #" + str(jid) + " не найдена.")
+        return
+
+    _, channel, category, title, description, url = row
+    bot.reply_to(message, "Оцениваю бюджет...")
+
+    verdict, reason = evaluate_budget(title, description, category)
+    icons = {"adequate": "✅ Адекватно", "low": "⚠ Мало", "high": "🎉 Хорошо", "unclear": "❓ Не указан"}
+    label = icons.get(verdict, "❓ " + verdict)
+
+    bot.reply_to(message,
+        "💰 Бюджет #" + str(jid) + "\n\n" +
+        "Оценка: " + label + "\n" +
+        ("Причина: " + reason + "\n\n" if reason else "\n") +
+        "Вакансия: " + title[:100] + "\n" +
+        "Ссылка: " + url
+    )
