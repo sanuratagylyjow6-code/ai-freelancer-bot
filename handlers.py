@@ -12,7 +12,7 @@ from jobs import fetch_jobs_from_channel
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
                        save_project, get_user_projects, get_project, get_project_with_parent,
                        save_full_project, get_user_full_projects, get_full_project)
-from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS
+from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS, OWNER_ID
 
 
 def split_long_message(text, max_len=None):
@@ -37,6 +37,29 @@ def send_code(message, code_text):
             bot.reply_to(message, f"<pre>{part}</pre>", parse_mode="HTML")
         except Exception as e:
             bot.reply_to(message, f"⚠ Не смог отправить: {e}")
+
+
+
+# ============================================================
+# ЗАЩИТА: бот доступен только владельцу
+# ============================================================
+
+def _is_owner(message):
+    """Проверяет, что сообщение от владельца."""
+    return message.from_user and message.from_user.id == OWNER_ID
+
+
+@bot.message_handler(func=lambda m: not _is_owner(m))
+def block_outsiders(message):
+    """Блокирует всех, кроме владельца."""
+    # Логируем попытку (в Render Logs)
+    print("🚫 Попытка доступа от user_id=" + str(message.from_user.id) +
+          " username=@" + str(message.from_user.username), flush=True)
+    try:
+        bot.reply_to(message, "⛔ Этот бот — приватный. Доступ только у владельца.")
+    except Exception:
+        pass
+
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):

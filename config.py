@@ -14,3 +14,5 @@ TELEGRAM_MAX_LEN = 4000
 
 
 GITHUB_USERNAME = os.environ.get("GITHUB_USERNAME", "")
+
+OWNER_ID = int(os.environ.get("OWNER_ID", "0"))
