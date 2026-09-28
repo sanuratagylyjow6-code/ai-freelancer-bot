@@ -85,6 +85,21 @@ def cron_task():
 
 
 
+@app.route("/dashboard", methods=["GET"])
+def dashboard_page():
+    """HTML-страница со статистикой бота."""
+    try:
+        from dashboard import render_dashboard
+        stats = database.get_dashboard_stats()
+        return render_dashboard(stats), 200
+    except Exception as e:
+        import traceback
+        return (
+            "<h1>Ошибка дашборда</h1>"
+            "<pre>" + str(traceback.format_exc()) + "</pre>"
+        ), 500
+
+
 if WEBHOOK_URL:
     try:
         bot.remove_webhook()

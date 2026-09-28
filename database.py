@@ -585,3 +585,73 @@ def get_full_project(pid, user_id):
     if not row:
         return None
     return json.loads(row[0])
+
+
+# ============================================================
+# СТАТИСТИКА ДЛЯ DASHBOARD
+# ============================================================
+
+def get_dashboard_stats():
+    """Собирает всю статистику для дашборда."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    stats = {}
+
+    # --- Вакансии ---
+    cursor.execute("SELECT COUNT(*) FROM found_jobs")
+    stats["jobs_total"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM found_jobs WHERE found_at::date = CURRENT_DATE")
+    stats["jobs_today"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM found_jobs WHERE found_at::timestamp > NOW() - INTERVAL '7 days'")
+    stats["jobs_week"] = cursor.fetchone()[0]
+
+    # --- Топ каналов ---
+    cursor.execute("""
+        SELECT channel, COUNT(*) as cnt
+        FROM found_jobs
+        GROUP BY channel
+        ORDER BY cnt DESC
+        LIMIT 10
+    """)
+    stats["top_channels"] = cursor.fetchall()
+
+    # --- AI-фильтр ---
+    cursor.execute("SELECT COUNT(DISTINCT job_id) FROM sent_notifications")
+    stats["jobs_sent"] = cursor.fetchone()[0]
+    stats["jobs_filtered"] = stats["jobs_total"] - stats["jobs_sent"]
+
+    # --- Отправки по пользователям ---
+    cursor.execute("SELECT COUNT(DISTINCT user_id) FROM sent_notifications")
+    stats["users_notified"] = cursor.fetchone()[0]
+
+    # --- Проекты ---
+    cursor.execute("SELECT COUNT(*) FROM projects")
+    stats["projects_total"] = cursor.fetchone()[0]
+
+    cursor.execute("SELECT COUNT(*) FROM full_projects")
+    stats["projects_full"] = cursor.fetchone()[0]
+
+    cursor.execute("""
+        SELECT ptype, COUNT(*) FROM projects
+        GROUP BY ptype ORDER BY COUNT(*) DESC
+    """)
+    stats["projects_by_type"] = cursor.fetchall()
+
+    # --- Пользователи бота ---
+    cursor.execute("SELECT COUNT(*) FROM users")
+    stats["users_total"] = cursor.fetchone()[0]
+
+    # --- Последние вакансии ---
+    cursor.execute("""
+        SELECT channel, category, title, post_url, found_at
+        FROM found_jobs
+        ORDER BY id DESC
+        LIMIT 10
+    """)
+    stats["recent_jobs"] = cursor.fetchall()
+
+    cursor.close()
+    conn.close()
+    return stats
