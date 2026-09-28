@@ -15,22 +15,41 @@ ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 
 def ask_ai(prompt, model=None, max_retries=3):
-    model = model or AI_MODEL
+    """Отправляет промпт в Gemini. Retry + fallback модель при 503/429."""
+    models_to_try = [model or AI_MODEL, "gemini-2.5-flash-lite", "gemini-2.5-flash"]
     last_error = None
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = ai_client.models.generate_content(
-                model=model,
-                contents=prompt
-            )
-            return response.text
-        except Exception as e:
-            last_error = e
-            if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-                return "⚠ Лимит ИИ на сегодня исчерпан."
-            if attempt < max_retries:
-                time.sleep(3)
-    return f"⚠ После {max_retries} попыток: {last_error}"
+
+    for m in models_to_try:
+        for attempt in range(1, max_retries + 1):
+            try:
+                response = ai_client.models.generate_content(
+                    model=m,
+                    contents=prompt
+                )
+                return response.text
+            except Exception as e:
+                err_str = str(e)
+                last_error = e
+
+                # Лимит исчерпан — нет смысла повторять
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                    return "Лимит ИИ исчерпан на сегодня."
+
+                # 503 — перегружен, ждём дольше
+                if "503" in err_str or "UNAVAILABLE" in err_str:
+                    wait = 4 * attempt
+                    print("503 на " + m + ", пауза " + str(wait) + "с", flush=True)
+                    time.sleep(wait)
+                    continue
+
+                # Другие ошибки — короче пауза
+                if attempt < max_retries:
+                    time.sleep(2)
+
+        # Если модель не ответила совсем — пробуем следующую
+        print("Модель " + m + " не отвечает, переключаюсь", flush=True)
+
+    return "После всех попыток: " + str(last_error)[:100]
 
 
 def evaluate_job_relevance(title, description, keywords):
