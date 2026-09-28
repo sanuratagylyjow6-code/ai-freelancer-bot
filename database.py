@@ -716,3 +716,102 @@ def get_quick_stats():
     cursor.close()
     conn.close()
     return s
+
+
+def parse_filter_keywords(keywords_string):
+    """Разбирает строку фильтра на 3 части: include, exclude, lang."""
+    parts = [p.strip().lower() for p in keywords_string.split(",") if p.strip()]
+    include = []
+    exclude = []
+    lang = None
+
+    for p in parts:
+        if p.startswith("-"):
+            exclude.append(p[1:].strip())
+        elif p.startswith("lang:"):
+            lang = p[5:].strip()
+        else:
+            include.append(p)
+
+    return {"include": include, "exclude": exclude, "lang": lang}
+
+
+def get_new_jobs_for_user_filtered(user_id, keywords_string, limit=8):
+    """Ищет вакансии по include, отсеивает по exclude, фильтрует по lang."""
+    f = parse_filter_keywords(keywords_string)
+    include = f["include"]
+    exclude = f["exclude"]
+    lang = f["lang"]
+
+    if not include and not lang:
+        return []
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    where_parts = []
+    params = [user_id]
+
+    # Include: хотя бы одно слово в title/desc
+    if include:
+        inc_parts = []
+        for w in include:
+            inc_parts.append("(LOWER(f.title) LIKE %s OR LOWER(f.description) LIKE %s)")
+            params.append("%" + w + "%")
+            params.append("%" + w + "%")
+        where_parts.append("(" + " OR ".join(inc_parts) + ")")
+
+    # Language filter (грубый: доля кириллицы)
+    if lang == "en":
+        where_parts.append("(f.title !~ '[А-Яа-яЁё]')")
+    elif lang == "ru":
+        where_parts.append("(f.title ~ '[А-Яа-яЁё]')")
+
+    # Exclude: НИ одно слово не должно быть в title/desc
+    for w in exclude:
+        where_parts.append("(LOWER(f.title) NOT LIKE %s AND LOWER(f.description) NOT LIKE %s)")
+        params.append("%" + w + "%")
+        params.append("%" + w + "%")
+
+    # Не отправлять повторно
+    where_parts.append("f.id NOT IN (SELECT job_id FROM sent_notifications WHERE user_id = %s)")
+
+    sql = "SELECT f.id, f.category, f.title, f.description, f.post_url FROM found_jobs f WHERE " + " AND ".join(where_parts) + " ORDER BY f.id DESC LIMIT %s"
+    params.append(limit)
+
+    cursor.execute(sql, params)
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def save_note(user_id, job_id, note):
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute("""
+        INSERT INTO job_notes (user_id, job_id, note, created_at)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (user_id, job_id) DO UPDATE
+        SET note = EXCLUDED.note
+    """, (user_id, job_id, note, now))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_user_notes(user_id, limit=20):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT n.job_id, n.note, n.created_at, f.title, f.post_url
+        FROM job_notes n
+        LEFT JOIN found_jobs f ON f.id = n.job_id
+        WHERE n.user_id = %s
+        ORDER BY n.id DESC LIMIT %s
+    """, (user_id, limit))
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result

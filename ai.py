@@ -250,6 +250,30 @@ def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
     return files
 
 
+def classify_job(title, description):
+    """Определяет категорию вакансии: Python / Bot / Parser / Automation / Other."""
+    prompt = (
+        "Определи категорию вакансии. Верни ОДНО слово из списка:\n"
+        "Python — если про Python-разработку\n"
+        "Bot — если про Telegram-ботов или чат-ботов\n"
+        "Parser — если про парсинг, скрейпинг, сбор данных\n"
+        "Automation — если про автоматизацию\n"
+        "Other — если не подходит\n\n"
+        "Название: " + title + "\n"
+        "Описание: " + description[:400] + "\n\n"
+        "Ответь ОДНИМ словом."
+    )
+    result = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=1)
+    if not result:
+        return "Other"
+    result = result.strip().strip(".,!?").strip()
+    valid = ["Python", "Bot", "Parser", "Automation", "Other"]
+    for v in valid:
+        if v.lower() in result.lower():
+            return v
+    return "Other"
+
+
 def run_code(code_text):
     namespace = {}
     try:

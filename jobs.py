@@ -378,7 +378,7 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
 
     for user_id, keywords in users:
         try:
-            candidates = database.get_new_jobs_for_user(user_id, keywords, limit=8)
+            candidates = database.get_new_jobs_for_user_filtered(user_id, keywords, limit=8)
             if not candidates:
                 continue
             if not use_ai_filter:

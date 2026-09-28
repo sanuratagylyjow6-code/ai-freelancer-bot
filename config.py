@@ -16,3 +16,8 @@ TELEGRAM_MAX_LEN = 4000
 GITHUB_USERNAME = os.environ.get("GITHUB_USERNAME", "")
 
 OWNER_ID = int(os.environ.get("OWNER_ID", "0"))
+
+# Символы-разделители для фильтров в /track
+FILTER_KEYWORDS_SEP = ","
+FILTER_EXCLUDE_PREFIX = "-"
+FILTER_LANG_PREFIX = "lang:"

@@ -326,16 +326,32 @@ def handle_stats_bot(message):
 
 @bot.message_handler(commands=['track'])
 def handle_track(message):
-    """Сохраняет ключевые слова для автопоиска."""
+    """Сохраняет фильтр. Поддерживает: слова, -исключения, lang:en/ru"""
     keywords = message.text.replace("/track", "", 1).strip()
     if not keywords:
-        bot.reply_to(message, "Напиши слова через запятую. Пример: /track python, разработчик, веб")
+        bot.reply_to(
+            message,
+            "Формат: /track python, бот, -java, lang:ru\n\n"
+            "Что можно:\n"
+            "• python, бот — что искать\n"
+            "• -java, -php — что исключить\n"
+            "• lang:en / lang:ru — язык вакансий"
+        )
         return
 
     user_id = message.from_user.id
     set_filter(user_id, keywords)
-    words = [w.strip() for w in keywords.split(",")]
-    bot.reply_to(message, f"✅ Твой фильтр сохранён:\n🔍 {' | '.join(words)}\n\nЯ пришлю вакансии, где встречается хотя бы одно из этих слов.")
+
+    f = parse_filter_keywords(keywords)
+    parts = []
+    if f["include"]:
+        parts.append("Ищу: " + " | ".join(f["include"]))
+    if f["exclude"]:
+        parts.append("Исключаю: " + " | ".join(f["exclude"]))
+    if f["lang"]:
+        parts.append("Язык: " + f["lang"])
+
+    bot.reply_to(message, "✅ Фильтр сохранён:\n" + "\n".join(parts))
 
 
 @bot.message_handler(commands=['untrack'])
@@ -698,3 +714,39 @@ def handle_deploy(message):
     except Exception as e:
         import traceback
         bot.reply_to(message, "🔥 Ошибка: " + traceback.format_exc()[-300:])
+
+
+@bot.message_handler(commands=['notes'])
+def handle_notes(message):
+    """Список заметок юзера. /notes или /notes add <id> <текст>"""
+    user_id = message.from_user.id
+    text = message.text.replace("/notes", "", 1).strip()
+
+    # /notes add <id> <текст>
+    if text.startswith("add "):
+        parts = text[4:].split(maxsplit=1)
+        if len(parts) < 2:
+            bot.reply_to(message, "Формат: /notes add <job_id> <текст>")
+            return
+        try:
+            jid = int(parts[0])
+        except ValueError:
+            bot.reply_to(message, "job_id должен быть числом")
+            return
+        note_text = parts[1]
+        save_note(user_id, jid, note_text)
+        bot.reply_to(message, "✅ Заметка сохранена для #" + str(jid))
+        return
+
+    # /notes — список
+    notes = get_user_notes(user_id, limit=20)
+    if not notes:
+        bot.reply_to(message, "Заметок нет. Формат: /notes add <job_id> <текст>")
+        return
+    lines = ["📝 Твои заметки:\n"]
+    for jid, note, created, title, url in notes:
+        short_title = (title or "?")[:60]
+        lines.append("#" + str(jid) + " " + short_title)
+        lines.append("   💬 " + note)
+        lines.append("   📅 " + created + "\n")
+    bot.reply_to(message, "\n".join(lines))
