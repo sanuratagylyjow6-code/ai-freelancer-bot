@@ -750,7 +750,7 @@ def get_new_jobs_for_user_filtered(user_id, keywords_string, limit=8):
     cursor = conn.cursor()
 
     where_parts = []
-    params = [user_id]
+    params = []
 
     # Include: хотя бы одно слово в title/desc
     if include:
@@ -761,7 +761,7 @@ def get_new_jobs_for_user_filtered(user_id, keywords_string, limit=8):
             params.append("%" + w + "%")
         where_parts.append("(" + " OR ".join(inc_parts) + ")")
 
-    # Language filter (грубый: доля кириллицы)
+    # Language filter
     if lang == "en":
         where_parts.append("(f.title !~ '[А-Яа-яЁё]')")
     elif lang == "ru":
@@ -773,10 +773,13 @@ def get_new_jobs_for_user_filtered(user_id, keywords_string, limit=8):
         params.append("%" + w + "%")
         params.append("%" + w + "%")
 
-    # Не отправлять повторно
+    # Не отправлять повторно — user_id идёт СЮДА (в конец, а не в начало!)
     where_parts.append("f.id NOT IN (SELECT job_id FROM sent_notifications WHERE user_id = %s)")
+    params.append(user_id)
 
-    sql = "SELECT f.id, f.category, f.title, f.description, f.post_url FROM found_jobs f WHERE " + " AND ".join(where_parts) + " ORDER BY f.id DESC LIMIT %s"
+    sql = ("SELECT f.id, f.category, f.title, f.description, f.post_url "
+           "FROM found_jobs f WHERE " + " AND ".join(where_parts) +
+           " ORDER BY f.id DESC LIMIT %s")
     params.append(limit)
 
     cursor.execute(sql, params)
