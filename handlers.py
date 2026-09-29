@@ -565,18 +565,26 @@ def _make_zip(files_dict):
 def handle_make_full(message):
     """Генерирует многофайловый проект и отправляет ZIP-архив."""
     tz = message.text.replace("/make_full", "", 1).strip()
-    if len(tz) < 15:
-        bot.reply_to(message, "Опиши подробнее. Пример: /make_full бот для кофейни с меню и оплатой")
-        return
-
-    # Проверяем, есть ли у клиента черновик ТЗ (после /draft)
     user_id = message.from_user.id
+
+    # Сначала проверяем черновик
     draft_row = get_draft(user_id)
-    if draft_row and draft_row[4] == "ready" and draft_row[3]:
+    has_draft = draft_row and draft_row[4] == "ready" and draft_row[3]
+
+    if has_draft:
         # Используем полное ТЗ из черновика
-        tz = draft_row[3] + chr(10) + chr(10) + "Доп: " + tz
+        tz = draft_row[3] + (chr(10) + chr(10) + "Доп: " + tz if tz else "")
         clear_draft(user_id)
         bot.reply_to(message, "📋 Использую собранное ТЗ из /draft")
+
+    # Если и черновика нет, и tz пустой — просим описать
+    if len(tz) < 15:
+        bot.reply_to(message,
+            "Опиши подробнее." + chr(10) +
+            "Или используй /draft <ТЗ>, чтобы бот задал вопросы." + chr(10) +
+            "Пример: /make_full бот для кофейни с меню и оплатой"
+        )
+        return
 
     ptype = _detect_project_type(tz)
 
