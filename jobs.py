@@ -362,7 +362,6 @@ def fetch_all_sources():
     rss_sources = [
         ("https://weworkremotely.com/categories/remote-programming-jobs.rss", "wwr"),
         ("https://www.freelancer.com/rss.xml", "freelancer"),
-        ("https://kwork.ru/rss", "kwork"),
     ]
     for url, ptype in rss_sources:
         jobs = fetch_from_rss(url, ptype, max_items=10)
