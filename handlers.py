@@ -13,7 +13,8 @@ from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filt
                        save_project, get_user_projects, get_project, get_project_with_parent,
                        save_full_project, get_user_full_projects, get_full_project,
                        search_jobs_full, get_quick_stats, parse_filter_keywords,
-                       save_note, get_user_notes, get_job_by_id)
+                       save_note, get_user_notes, get_job_by_id,
+                       set_job_status, get_job_status, get_jobs_by_status)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS, OWNER_ID
 
 
@@ -744,10 +745,13 @@ def handle_notes(message):
     if not notes:
         bot.reply_to(message, "Заметок нет. Формат: /notes add <job_id> <текст>")
         return
+    user_id = message.from_user.id
     lines = ["📝 Твои заметки:\n"]
     for jid, note, created, title, url in notes:
         short_title = (title or "?")[:60]
-        lines.append("#" + str(jid) + " " + short_title)
+        st = get_job_status(user_id, jid)
+        icon = STATUS_ICONS.get(st[0], "⚪") if st else "⚪"
+        lines.append(icon + " #" + str(jid) + " " + short_title)
         lines.append("   💬 " + note)
         lines.append("   📅 " + created + "\n")
     bot.reply_to(message, "\n".join(lines))
@@ -775,10 +779,15 @@ def handle_apply(message):
         bot.reply_to(message, "Не получилось сгенерировать.")
         return
 
+    # Ставим статус "в работе" — ты уже готовишь отклик
+    user_id = message.from_user.id
+    set_job_status(user_id, jid, "in_work")
+
     text = (
-        "Черновик для #" + str(jid) + "\n\n" +
+        "Черновик для #" + str(jid) + " (статус: 🟡 в работе)\n\n" +
         draft + "\n\n" +
-        "Ссылка на вакансию: " + url
+        "Ссылка на вакансию: " + url + "\n\n" +
+        "Сменить статус: /status " + str(jid) + " <new|in_work|won|lost|archived>"
     )
     send_code(message, text)
 
@@ -811,3 +820,89 @@ def handle_budget(message):
         "Вакансия: " + title[:100] + "\n" +
         "Ссылка: " + url
     )
+
+
+STATUS_ICONS = {
+    "new": "🔵",
+    "in_work": "🟡",
+    "won": "🟢",
+    "lost": "🔴",
+    "archived": "⚫",
+}
+
+STATUS_NAMES = {
+    "new": "новая",
+    "in_work": "в работе",
+    "won": "получен",
+    "lost": "отказ",
+    "archived": "архив",
+}
+
+
+@bot.message_handler(commands=['status'])
+def handle_status(message):
+    """Меняет статус вакансии. /status <job_id> <new|in_work|won|lost|archived>"""
+    parts = message.text.replace("/status", "", 1).strip().split()
+    if len(parts) < 2:
+        bot.reply_to(message, "Формат: /status <id> <new|in_work|won|lost|archived>\nПример: /status 5 won")
+        return
+
+    try:
+        jid = int(parts[0])
+    except ValueError:
+        bot.reply_to(message, "job_id должен быть числом")
+        return
+
+    new_status = parts[1].lower()
+    if new_status not in STATUS_NAMES:
+        bot.reply_to(message, "Статус должен быть: new / in_work / won / lost / archived")
+        return
+
+    user_id = message.from_user.id
+    row = get_job_by_id(jid)
+    if not row:
+        bot.reply_to(message, "Вакансия #" + str(jid) + " не найдена")
+        return
+
+    set_job_status(user_id, jid, new_status)
+    icon = STATUS_ICONS[new_status]
+    bot.reply_to(message, icon + " Статус #" + str(jid) + " → " + STATUS_NAMES[new_status])
+
+
+@bot.message_handler(commands=['myjobs'])
+def handle_myjobs(message):
+    """Показывает вакансии в работе (или с другим статусом)."""
+    text = message.text.replace("/myjobs", "", 1).strip().lower()
+    status_filter = text if text in STATUS_NAMES else "in_work"
+
+    user_id = message.from_user.id
+    rows = get_jobs_by_status(user_id, status=status_filter, limit=20)
+
+    if not rows:
+        bot.reply_to(message, "Нет вакансий со статусом '" + STATUS_NAMES.get(status_filter, status_filter) + "'.\nМеняй через /status <id> won/lost/in_work")
+        return
+
+    icon = STATUS_ICONS.get(status_filter, "⚪")
+    lines = [icon + " Вакансии (" + STATUS_NAMES.get(status_filter, status_filter) + "): " + str(len(rows)) + "\n"]
+    for jid, st, updated, title, url in rows:
+        short_title = (title or "?")[:60]
+        lines.append("#" + str(jid) + " " + short_title)
+        lines.append("   📅 " + (updated or "")[:16])
+    lines.append("\nМенять статус: /status <id> <new|in_work|won|lost|archived>")
+    bot.reply_to(message, "\n".join(lines))
+
+
+@bot.message_handler(commands=['statuses'])
+def handle_statuses_summary(message):
+    """Сводка по всем статусам."""
+    user_id = message.from_user.id
+    lines = ["📊 Сводка по статусам:\n"]
+    total = 0
+    for st in ["new", "in_work", "won", "lost", "archived"]:
+        rows = get_jobs_by_status(user_id, status=st, limit=999)
+        cnt = len(rows)
+        total += cnt
+        lines.append(STATUS_ICONS[st] + " " + STATUS_NAMES[st] + ": " + str(cnt))
+    lines.append("\nВсего отмечено: " + str(total))
+    lines.append("\nКоманды: /myjobs, /status <id> <st>")
+    bot.reply_to(message, "\n".join(lines))

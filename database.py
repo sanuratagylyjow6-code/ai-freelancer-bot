@@ -867,3 +867,59 @@ def get_chart_data():
     cursor.close()
     conn.close()
     return data
+
+
+def set_job_status(user_id, job_id, status):
+    """Устанавливает статус вакансии. UPSERT."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute("""
+        INSERT INTO job_statuses (user_id, job_id, status, updated_at)
+        VALUES (%s, %s, %s, %s)
+        ON CONFLICT (user_id, job_id) DO UPDATE
+        SET status = EXCLUDED.status, updated_at = EXCLUDED.updated_at
+    """, (user_id, job_id, status, now))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_job_status(user_id, job_id):
+    """Возвращает статус вакансии или None."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT status, updated_at FROM job_statuses WHERE user_id = %s AND job_id = %s",
+        (user_id, job_id)
+    )
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def get_jobs_by_status(user_id, status=None, limit=20):
+    """Возвращает вакансии с указанным статусом (или все, если None)."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    if status:
+        cursor.execute("""
+            SELECT s.job_id, s.status, s.updated_at, f.title, f.post_url
+            FROM job_statuses s
+            LEFT JOIN found_jobs f ON f.id = s.job_id
+            WHERE s.user_id = %s AND s.status = %s
+            ORDER BY s.id DESC LIMIT %s
+        """, (user_id, status, limit))
+    else:
+        cursor.execute("""
+            SELECT s.job_id, s.status, s.updated_at, f.title, f.post_url
+            FROM job_statuses s
+            LEFT JOIN found_jobs f ON f.id = s.job_id
+            WHERE s.user_id = %s
+            ORDER BY s.id DESC LIMIT %s
+        """, (user_id, limit))
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
