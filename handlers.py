@@ -578,6 +578,26 @@ def handle_make_full(message):
         user_id = message.from_user.id
         pid = save_full_project(user_id, tz, files)
 
+        # Sandbox-проверка главного файла (если есть)
+        main_file = None
+        for name in ["bot.py", "main.py"]:
+            if name in files:
+                main_file = name
+                break
+
+        test_report = ""
+        if main_file:
+            try:
+                from sandbox import quick_smoke_test
+                r = quick_smoke_test(files[main_file], timeout=10)
+                if r["ok"]:
+                    test_report = "\n\n✅ Sandbox: код запустился без ошибок"
+                else:
+                    err = (r.get("error") or r.get("stderr", ""))[:200]
+                    test_report = "\n\n⚠ Sandbox обнаружил проблему:\n" + err
+            except Exception as e:
+                test_report = "\n\n⚠ Sandbox не сработал: " + str(e)[:100]
+
         # Формируем краткое резюме
         file_list = "\n".join(["  • " + n for n in sorted(files.keys())])
         zip_buf = _make_zip(files)
@@ -587,7 +607,7 @@ def handle_make_full(message):
             message.chat.id,
             zip_buf,
             visible_file_name=zip_name,
-            caption="✅ Многофайловый проект #" + str(pid) + " готов!\n\n📁 Файлы:\n" + file_list + "\n\nСкачать: /dl_full " + str(pid)
+            caption="✅ Многофайловый проект #" + str(pid) + " готов!\n\n📁 Файлы:\n" + file_list + test_report + "\n\nСкачать: /dl_full " + str(pid) + "\nТест: /test " + str(pid)
         )
     except Exception as e:
         import traceback
@@ -906,3 +926,51 @@ def handle_statuses_summary(message):
     lines.append("\nВсего отмечено: " + str(total))
     lines.append("\nКоманды: /myjobs, /status <id> <st>")
     bot.reply_to(message, "\n".join(lines))
+
+
+@bot.message_handler(commands=['test'])
+def handle_test_code(message):
+    """Тестирует сгенерированный проект в sandbox. /test <id>"""
+    try:
+        pid = int(message.text.replace("/test", "", 1).strip())
+    except ValueError:
+        bot.reply_to(message, "Формат: /test <id>. Пример: /test 8")
+        return
+
+    user_id = message.from_user.id
+    files = get_full_project(pid, user_id)
+    if not files:
+        bot.reply_to(message, "Проект #" + str(pid) + " не найден среди многофайловых.")
+        return
+
+    # Ищем главный файл
+    main_file = None
+    for name in ["bot.py", "main.py"]:
+        if name in files:
+            main_file = name
+            break
+    if not main_file:
+        bot.reply_to(message, "В проекте нет bot.py или main.py — нечего тестировать.")
+        return
+
+    bot.reply_to(message, "Запускаю sandbox-тест...")
+
+    # Импорт только здесь — чтобы не грузить без надобности
+    from sandbox import quick_smoke_test
+
+    code = files[main_file]
+    result = quick_smoke_test(code, timeout=10)
+
+    if result["ok"]:
+        out = result["stdout"].strip()[:500] or "(нет вывода)"
+        bot.reply_to(message,
+            "✅ Тест #" + str(pid) + " пройден\n\n"
+            "Файл: " + main_file + "\n\n"
+            "Вывод:\n" + out
+        )
+    else:
+        err = result.get("error") or result.get("stderr", "")[:500]
+        bot.reply_to(message,
+            "❌ Тест #" + str(pid) + " провален\n\n"
+            "Ошибка:\n" + err
+        )
