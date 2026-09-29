@@ -588,8 +588,8 @@ def handle_make_full(message):
         test_report = ""
         if main_file:
             try:
-                from sandbox import quick_smoke_test
-                r = quick_smoke_test(files[main_file], timeout=10)
+                from sandbox import test_project_safe
+                r = test_project_safe(files, main_file, timeout=15)
                 if r["ok"]:
                     test_report = "\n\n✅ Sandbox: код запустился без ошибок"
                 else:
@@ -955,11 +955,10 @@ def handle_test_code(message):
 
     bot.reply_to(message, "Запускаю sandbox-тест...")
 
-    # Импорт только здесь — чтобы не грузить без надобности
-    from sandbox import quick_smoke_test
+    # Импорт только здесь
+    from sandbox import test_project_safe
 
-    code = files[main_file]
-    result = quick_smoke_test(code, timeout=10)
+    result = test_project_safe(files, main_file, timeout=15)
 
     if result["ok"]:
         out = result["stdout"].strip()[:500] or "(нет вывода)"

@@ -8,22 +8,27 @@ import subprocess
 import tempfile
 
 
-def test_code_safe(code, timeout=15):
-    """Запускает код в изолированной папке без токенов.
-
-    Возвращает dict: {ok, stdout, stderr, returncode, error}
-    """
-    # Уникальная временная папка
+def _run_in_tmpdir(files_dict, main_file, timeout):
+    """Внутренняя: распаковывает все файлы и запускает main_file."""
     tmpdir = os.path.join(tempfile.gettempdir(), "sandbox_" + uuid.uuid4().hex[:8])
     os.makedirs(tmpdir, exist_ok=True)
 
-    filepath = os.path.join(tmpdir, "test_script.py")
+    # Записываем ВСЕ файлы проекта
+    for name, code in files_dict.items():
+        # Защита: не пишем за пределы tmpdir
+        if ".." in name or name.startswith("/"):
+            continue
+        filepath = os.path.join(tmpdir, name)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        try:
+            with open(filepath, "w") as f:
+                f.write(code)
+        except Exception:
+            pass
+
+    main_path = os.path.join(tmpdir, main_file)
 
     try:
-        with open(filepath, "w") as f:
-            f.write(code)
-
-        # Минимальный env — без BOT_TOKEN, GEMINI_API_KEY и т.д.
         safe_env = {
             "PATH": os.environ.get("PATH", ""),
             "PYTHONPATH": tmpdir,
@@ -31,7 +36,7 @@ def test_code_safe(code, timeout=15):
         }
 
         result = subprocess.run(
-            [sys.executable, filepath],
+            [sys.executable, main_path],
             capture_output=True,
             timeout=timeout,
             env=safe_env,
@@ -49,7 +54,7 @@ def test_code_safe(code, timeout=15):
 
     except subprocess.TimeoutExpired:
         return {"ok": False, "stdout": "", "stderr": "", "returncode": -1,
-                "error": "Timeout: код работал дольше " + str(timeout) + " сек (возможно, бесконечный цикл или ожидание ввода)"}
+                "error": "Timeout: код работал дольше " + str(timeout) + " сек"}
     except Exception as e:
         return {"ok": False, "stdout": "", "stderr": "", "returncode": -1,
                 "error": str(e)}
@@ -60,19 +65,36 @@ def test_code_safe(code, timeout=15):
             pass
 
 
-def quick_smoke_test(code, timeout=10):
-    """Быстрая проверка: код должен запуститься и завершиться без ошибок.
-    Пропускает блокирующие вызовы (polling, app.run)."""
-    # Заменяем блокирующие вызовы на print — чтобы код не висел
-    safe_code = code
+def test_code_safe(code, timeout=15):
+    """Запускает один файл (для обратной совместимости)."""
+    return _run_in_tmpdir({"test_script.py": code}, "test_script.py", timeout)
+
+
+def _prepare_project(files_dict, main_file):
+    """Заменяет блокирующие вызовы, чтобы код не висел."""
     replacements = [
         ("bot.infinity_polling()", "print('would start polling')"),
-        ("bot.polling()", "print('would start polling')"),
         ("bot.polling(none_stop=True)", "print('would start polling')"),
-        ("app.run(", "print('would start flask') # app.run("),
+        ("bot.polling()", "print('would start polling')"),
         ("application.run_polling()", "print('would start polling')"),
+        ("app.run(", "# app.run("),
     ]
-    for old, new in replacements:
-        safe_code = safe_code.replace(old, new)
+    prepared = {}
+    for name, code in files_dict.items():
+        new_code = code
+        for old, new in replacements:
+            new_code = new_code.replace(old, new)
+        prepared[name] = new_code
+    return prepared
 
-    return test_code_safe(safe_code, timeout=timeout)
+
+def test_project_safe(files_dict, main_file, timeout=15):
+    """Запускает многофайловый проект в sandbox."""
+    prepared = _prepare_project(files_dict, main_file)
+    return _run_in_tmpdir(prepared, main_file, timeout)
+
+
+def quick_smoke_test(code, timeout=10):
+    """Обратная совместимость: запускает один файл."""
+    prepared = _prepare_project({"test_script.py": code}, "test_script.py")
+    return _run_in_tmpdir(prepared, "test_script.py", timeout)
