@@ -29,11 +29,13 @@ def _run_in_tmpdir(files_dict, main_file, timeout):
     main_path = os.path.join(tmpdir, main_file)
 
     try:
-        safe_env = {
-            "PATH": os.environ.get("PATH", ""),
-            "PYTHONPATH": tmpdir,
-            "HOME": tmpdir,
-        }
+        # Наследуем env родителя (чтобы найти site-packages) + добавляем tmpdir
+        safe_env = os.environ.copy()
+        safe_env["PYTHONPATH"] = tmpdir + os.pathsep + safe_env.get("PYTHONPATH", "")
+        safe_env["HOME"] = tmpdir
+        # Убираем возможные секреты, чтобы код не мог их прочитать
+        for secret_key in ["BOT_TOKEN", "GEMINI_API_KEY", "GITHUB_TOKEN", "DATABASE_URL"]:
+            safe_env.pop(secret_key, None)
 
         result = subprocess.run(
             [sys.executable, main_path],
@@ -71,19 +73,60 @@ def test_code_safe(code, timeout=15):
 
 
 def _prepare_project(files_dict, main_file):
-    """Заменяет блокирующие вызовы, чтобы код не висел."""
-    replacements = [
+    """Заменяет блокирующие вызовы и плейсхолдеры токенов."""
+    import re
+
+    # Блокирующие вызовы → в print
+    blocking = [
         ("bot.infinity_polling()", "print('would start polling')"),
         ("bot.polling(none_stop=True)", "print('would start polling')"),
         ("bot.polling()", "print('would start polling')"),
         ("application.run_polling()", "print('would start polling')"),
         ("app.run(", "# app.run("),
     ]
+
+    # Подмена плейсхолдеров токена
+    # Валидный формат: "<10 цифр>:<35 символов>"
+    FAKE_TOKEN = "1234567890:FAKE_TEST_TOKEN_NOT_REAL_AAAAAAAAA"
+
     prepared = {}
     for name, code in files_dict.items():
         new_code = code
-        for old, new in replacements:
+
+        # 1) Блокирующие вызовы
+        for old, new in blocking:
             new_code = new_code.replace(old, new)
+
+        # 2) Плейсхолдеры токенов — все варианты, что генерирует Gemini
+        placeholders = [
+            '"YOUR_BOT_TOKEN_HERE"',
+            "'YOUR_BOT_TOKEN_HERE'",
+            '"YOUR_BOT_TOKEN"',
+            "'YOUR_BOT_TOKEN'",
+            '"TOKEN_HERE"',
+            "'TOKEN_HERE'",
+            '"YOUR_TOKEN"',
+            "'YOUR_TOKEN'",
+            '"ВАШ_ТОКЕН"',
+            "'ВАШ_ТОКЕН'",
+        ]
+        for ph in placeholders:
+            new_code = new_code.replace(ph, '"' + FAKE_TOKEN + '"')
+
+        # 3) Регуляркой ловим остальные плейсхолдеры
+        new_code = re.sub(
+            r'(?i)(["\'])YOUR[_A-Z]*BOT[_A-Z]*TOKEN[_A-Z]*(["\'])',
+            '"' + FAKE_TOKEN + '"',
+            new_code
+        )
+
+        # 4) os.getenv("BOT_TOKEN", "плейсхолдер") → подменяем дефолт
+        new_code = re.sub(
+            r'(getenv\(["\']BOT_TOKEN["\'],\s*)(["\'])[^"\']*\2',
+            r'\1"' + FAKE_TOKEN + '"',
+            new_code
+        )
+
         prepared[name] = new_code
     return prepared
 
