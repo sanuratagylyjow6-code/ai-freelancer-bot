@@ -1,0 +1,35 @@
+# Git
+.git
+.gitignore
+
+# Python кэш
+__pycache__
+*.py[cod]
+*.egg-info
+venv
+env
+.venv
+
+# Colab
+.ipynb_checkpoints
+
+# Секреты
+.env
+*.env
+secrets.txt
+
+# База данных (создаётся при запуске)
+*.db
+*.db-journal
+
+# Логи
+*.log
+
+# Docker
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# Документация
+README.md
+*.md
