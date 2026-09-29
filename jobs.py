@@ -156,6 +156,29 @@ def _parse_job_python(raw_text, prefix):
              "title": (title + " — " + company)[:200], "description": description[:1500]}]
 
 
+
+def _parse_kwork_rss(items):
+    """Парсер Kwork RSS: title, description (HTML), link."""
+    jobs = []
+    for idx, (guid, title, link, desc, pub) in enumerate(items):
+        clean_title = _clean_html(title)
+        clean_desc = _clean_html(desc)
+        # Пытаемся вытащить бюджет из title (например, "за 8000 руб.")
+        budget_match = re.search(r'за\s*([\d\s]+)\s*руб', title, re.IGNORECASE)
+        budget = ""
+        if budget_match:
+            budget = " | Бюджет: " + budget_match.group(0).strip()
+        jobs.append({
+            "job_uid": _make_uid("kwork", guid, link, idx),
+            "category": "Kwork",
+            "title": clean_title[:200],
+            "description": (clean_desc + budget)[:1500],
+            "post_url": link,
+            "posted_at": pub,
+            "channel": "kwork",
+        })
+    return jobs
+
 def _parse_single_job(raw_text, prefix):
     lines = [l.strip() for l in raw_text.split("\n") if l.strip()]
     if not lines:
@@ -315,6 +338,8 @@ def fetch_from_rss(url, parser_type, max_items=10):
         return _parse_wwr_rss(items)
     if parser_type == "freelancer":
         return _parse_freelancer_rss(items)
+    if parser_type == "kwork":
+        return _parse_kwork_rss(items)
     return []
 
 
@@ -337,6 +362,7 @@ def fetch_all_sources():
     rss_sources = [
         ("https://weworkremotely.com/categories/remote-programming-jobs.rss", "wwr"),
         ("https://www.freelancer.com/rss.xml", "freelancer"),
+        ("https://kwork.ru/rss", "kwork"),
     ]
     for url, ptype in rss_sources:
         jobs = fetch_from_rss(url, ptype, max_items=10)
