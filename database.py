@@ -963,3 +963,63 @@ def clear_user_files(user_id):
     conn.commit()
     cursor.close()
     conn.close()
+
+
+def save_draft(user_id, brief=None, questions=None, answers=None, full_tz=None, state=None):
+    """Сохраняет черновик ТЗ. Обновляет только переданные поля."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # Проверяем, есть ли уже
+    cursor.execute("SELECT id FROM tz_drafts WHERE user_id = %s", (user_id,))
+    exists = cursor.fetchone()
+
+    if not exists:
+        cursor.execute("""
+            INSERT INTO tz_drafts (user_id, brief, questions, answers, full_tz, state, updated_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (user_id, brief or "", questions or "", answers or "", full_tz or "", state or "drafting", now))
+    else:
+        updates = []
+        params = []
+        if brief is not None:
+            updates.append("brief = %s"); params.append(brief)
+        if questions is not None:
+            updates.append("questions = %s"); params.append(questions)
+        if answers is not None:
+            updates.append("answers = %s"); params.append(answers)
+        if full_tz is not None:
+            updates.append("full_tz = %s"); params.append(full_tz)
+        if state is not None:
+            updates.append("state = %s"); params.append(state)
+        updates.append("updated_at = %s"); params.append(now)
+        params.append(user_id)
+        cursor.execute("UPDATE tz_drafts SET " + ", ".join(updates) + " WHERE user_id = %s", params)
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_draft(user_id):
+    """Возвращает (brief, questions, answers, full_tz, state) или None."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT brief, questions, answers, full_tz, state
+        FROM tz_drafts WHERE user_id = %s
+    """, (user_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def clear_draft(user_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM tz_drafts WHERE user_id = %s", (user_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()

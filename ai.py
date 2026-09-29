@@ -369,6 +369,39 @@ def evaluate_budget(title, description, category):
     return (verdict, reason)
 
 
+def generate_tz_questions(brief):
+    """Генерирует 3-5 уточняющих вопросов по краткому ТЗ."""
+    NL = chr(10)
+    prompt = (
+        "Ты — опытный project manager. Клиент дал краткое ТЗ:" + NL + NL +
+        brief + NL + NL +
+        "Задай РОВНО 3 вопроса, которые уточнят ТЗ для разработчика." + NL +
+        "Вопросы должны касаться: функциональности, данных, стека." + NL +
+        "Формат ответа — 3 строки, каждый вопрос начинается с номера:" + NL +
+        "1. ..." + NL +
+        "2. ..." + NL +
+        "3. ..." + NL +
+        "Без вступлений и комментариев."
+    )
+    return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+
+
+def compose_full_tz(brief, qa_pairs):
+    """Собирает финальное ТЗ из краткого ТЗ + вопросов-ответов."""
+    NL = chr(10)
+    qa_text = ""
+    for q, a in qa_pairs:
+        qa_text += "Q: " + q + NL + "A: " + a + NL + NL
+
+    prompt = (
+        "Собери единое ТЗ для разработчика на основе:" + NL + NL +
+        "ИСХОДНОЕ ТЗ: " + brief + NL + NL +
+        "УТОЧНЕНИЯ:" + NL + qa_text + NL +
+        "Верни структурированное ТЗ: цель, функции, данные, стек. Без воды, до 400 слов."
+    )
+    return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+
+
 def run_code(code_text):
     namespace = {}
     try:

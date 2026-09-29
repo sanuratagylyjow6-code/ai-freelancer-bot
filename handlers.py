@@ -6,7 +6,8 @@ from database import (
     save_user, get_user_stats, get_all_clients,
     save_task, update_task, get_user_tasks
 )
-from ai import (ask_ai, run_code, auto_fix, generate_project, edit_project, generate_full_project, generate_apply_draft, evaluate_budget)
+from ai import (ask_ai, run_code, auto_fix, generate_project, edit_project, generate_full_project, generate_apply_draft, evaluate_budget,
+                       generate_tz_questions, compose_full_tz)
 from parser import parse_quotes
 from jobs import fetch_from_telegram, fetch_all_sources
 from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filter,
@@ -15,7 +16,8 @@ from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filt
                        search_jobs_full, get_quick_stats, parse_filter_keywords,
                        save_note, get_user_notes, get_job_by_id,
                        set_job_status, get_job_status, get_jobs_by_status,
-                       save_user_file, get_latest_user_file, clear_user_files)
+                       save_user_file, get_latest_user_file, clear_user_files,
+                       save_draft, get_draft, clear_draft)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS, OWNER_ID
 
 
@@ -567,10 +569,18 @@ def handle_make_full(message):
         bot.reply_to(message, "Опиши подробнее. Пример: /make_full бот для кофейни с меню и оплатой")
         return
 
+    # Проверяем, есть ли у клиента черновик ТЗ (после /draft)
+    user_id = message.from_user.id
+    draft_row = get_draft(user_id)
+    if draft_row and draft_row[4] == "ready" and draft_row[3]:
+        # Используем полное ТЗ из черновика
+        tz = draft_row[3] + chr(10) + chr(10) + "Доп: " + tz
+        clear_draft(user_id)
+        bot.reply_to(message, "📋 Использую собранное ТЗ из /draft")
+
     ptype = _detect_project_type(tz)
 
     # Проверяем, есть ли у клиента загруженный файл — используем как доп. ТЗ
-    user_id = message.from_user.id
     file_row = get_latest_user_file(user_id)
     if file_row:
         filename, file_content, _, _ = file_row
@@ -1058,3 +1068,132 @@ def handle_myfile(message):
         "Размер: " + str(len(content)) + " символов\n\n"
         "Превью:\n" + preview + "..."
     )
+
+
+# ============================================================
+# DRAFT: УТОЧНЯЮЩИЕ ВОПРОСЫ К ТЗ
+# ============================================================
+
+def _ask_question_step(chat_id, user_id, questions, answers, current_idx=0):
+    """Задаёт текущий вопрос и ждёт ответа."""
+    if current_idx >= len(questions):
+        # Все вопросы заданы — собираем финальное ТЗ
+        brief_row = get_draft(user_id)
+        brief = brief_row[0] if brief_row else ""
+        qa_pairs = list(zip(questions, answers))
+
+        bot.send_message(chat_id, "🧠 Собираю финальное ТЗ... 10-20 сек.")
+        full_tz = compose_full_tz(brief, qa_pairs)
+
+        if not full_tz or "Ошибка ИИ" in full_tz:
+            bot.send_message(chat_id, "Не смог собрать ТЗ. Попробуй /draft заново.")
+            return
+
+        answers_text = chr(10).join([q + " → " + a for q, a in qa_pairs])
+        save_draft(user_id, answers=answers_text, full_tz=full_tz, state="ready")
+
+        bot.send_message(chat_id,
+            "✅ ТЗ собрано!" + chr(10) + chr(10) +
+            full_tz[:800] + chr(10) + chr(10) +
+            "Теперь напиши: /make_full"
+        )
+        return
+
+    # Задаём вопрос и регистрируем next_step_handler
+    q = questions[current_idx]
+    bot.send_message(chat_id, "❓ Вопрос " + str(current_idx + 1) + " из " + str(len(questions)) + ":" + chr(10) + q)
+
+    def _handle_answer(message):
+        if message.text and message.text.strip():
+            answers.append(message.text.strip())
+        else:
+            answers.append("(без ответа)")
+        _ask_question_step(message.chat.id, user_id, questions, answers, current_idx + 1)
+
+    bot.register_next_step_handler_by_chat_id(chat_id, _handle_answer)
+
+
+@bot.message_handler(commands=['draft'])
+def handle_draft(message):
+    """Начинает сбор ТЗ через вопросы. /draft <краткое ТЗ>"""
+    brief = message.text.replace("/draft", "", 1).strip()
+    if len(brief) < 10:
+        bot.reply_to(message,
+            "Формат: /draft <краткое ТЗ>" + chr(10) +
+            "Пример: /draft бот для кафе с меню и заказом"
+        )
+        return
+
+    user_id = message.from_user.id
+    bot.reply_to(message, "🧠 Готовлю вопросы по твоему ТЗ... 10-15 сек.")
+
+    # Очищаем старый черновик
+    clear_draft(user_id)
+
+    questions_text = generate_tz_questions(brief)
+    if not questions_text or "Ошибка ИИ" in questions_text:
+        bot.reply_to(message, "Не смог сгенерировать вопросы. Попробуй позже.")
+        return
+
+    # Парсим вопросы — берём строки, начинающиеся с "1.", "2.", "3."
+    lines = [l.strip() for l in questions_text.split(chr(10)) if l.strip()]
+    questions = []
+    for line in lines:
+        if line and line[0].isdigit() and (line[1:3] in (". ", ") ") or line[1:2] == "."):
+            q = line
+            if ". " in line[:4]:
+                q = line.split(". ", 1)[1]
+            elif ") " in line[:4]:
+                q = line.split(") ", 1)[1]
+            questions.append(q.strip())
+        elif questions:
+            questions[-1] += " " + line
+
+    # Ограничимся 3-5 вопросами
+    questions = questions[:5]
+
+    if not questions:
+        bot.reply_to(message, "Не получилось распарсить вопросы. Сырой ответ:" + chr(10) + questions_text[:500])
+        return
+
+    save_draft(user_id, brief=brief, questions=chr(10).join(questions), state="asking")
+
+    # Запускаем пошаговый диалог
+    _ask_question_step(message.chat.id, user_id, questions, [], 0)
+
+
+@bot.message_handler(commands=['mytz'])
+def handle_mytz(message):
+    """Показывает текущий черновик ТЗ."""
+    user_id = message.from_user.id
+    row = get_draft(user_id)
+    if not row:
+        bot.reply_to(message, "Нет черновика. Начни с /draft <ТЗ>")
+        return
+
+    brief, questions, answers, full_tz, state = row
+    icons = {"drafting": "✏️", "asking": "❓", "ready": "✅"}
+    icon = icons.get(state, "❔")
+
+    lines = [icon + " Черновик ТЗ (состояние: " + state + ")", ""]
+    if brief:
+        lines.append("📝 Краткое ТЗ: " + brief[:200])
+    if full_tz:
+        lines.append("")
+        lines.append("🎯 Полное ТЗ:")
+        lines.append(full_tz[:800])
+    if not full_tz:
+        lines.append("")
+        lines.append("Команды: /draft <ТЗ> — начать заново, /cleartz — удалить.")
+
+    bot.reply_to(message, chr(10).join(lines))
+
+
+@bot.message_handler(commands=['cleartz'])
+def handle_cleartz(message):
+    user_id = message.from_user.id
+    clear_draft(user_id)
+    bot.reply_to(message, "🗑 Черновик ТЗ удалён.")
+
+
+# Регистрируем команды
