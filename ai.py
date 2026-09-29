@@ -192,6 +192,7 @@ def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
             "- database.py — работа с SQLite\n"
             "- config.py — BOT_TOKEN и настройки\n"
             "- requirements.txt — зависимости (pip install -r)\n"
+            "- test_bot.py — базовые тесты через pytest\n"
             "- README.md — краткая инструкция запуска\n"
             "Используй pyTelegramBotAPI."
         ),

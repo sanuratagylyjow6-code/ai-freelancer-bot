@@ -91,6 +91,7 @@ def dashboard_page():
     try:
         from dashboard import render_dashboard
         stats = database.get_dashboard_stats()
+        stats["_chart_data"] = database.get_chart_data()
         return render_dashboard(stats), 200
     except Exception as e:
         import traceback

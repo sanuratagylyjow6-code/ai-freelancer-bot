@@ -11,6 +11,89 @@ def _esc(text):
     return html_module.escape(str(text))
 
 
+
+
+def _render_charts(chart_data):
+    """Рендерит блок с графиками через Chart.js."""
+    # Готовим данные для JS
+    daily_labels = "[]"
+    daily_values = "[]"
+    if chart_data.get("daily"):
+        labels = [f'"{d[0]}"' for d, _ in chart_data["daily"]]
+        values = [str(v) for _, v in chart_data["daily"]]
+        daily_labels = "[" + ",".join(labels) + "]"
+        daily_values = "[" + ",".join(values) + "]"
+
+    channel_labels = "[]"
+    channel_values = "[]"
+    if chart_data.get("channels"):
+        labels = [f'"{c}"' for c, _ in chart_data["channels"]]
+        values = [str(v) for _, v in chart_data["channels"]]
+        channel_labels = "[" + ",".join(labels) + "]"
+        channel_values = "[" + ",".join(values) + "]"
+
+    html = (
+        "<div class='section'>"
+        "<h2>📈 Вакансии за 7 дней</h2>"
+        "<canvas id='dailyChart' height='120'></canvas>"
+        "</div>"
+
+        "<div class='section'>"
+        "<h2>📡 Вакансии по каналам</h2>"
+        "<canvas id='channelChart' height='160'></canvas>"
+        "</div>"
+
+        "<script src='https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js'></script>"
+        "<script>"
+        "const ctx1 = document.getElementById('dailyChart').getContext('2d');"
+        "new Chart(ctx1, {"
+        "  type: 'line',"
+        "  data: {"
+        "    labels: " + daily_labels + ","
+        "    datasets: [{"
+        "      label: 'Вакансий',"
+        "      data: " + daily_values + ","
+        "      borderColor: '#4ade80',"
+        "      backgroundColor: 'rgba(74,222,128,0.15)',"
+        "      tension: 0.3,"
+        "      fill: true"
+        "    }]"
+        "  },"
+        "  options: {"
+        "    responsive: true,"
+        "    plugins: { legend: { display: false } },"
+        "    scales: {"
+        "      x: { ticks: { color: '#8b98a5' }, grid: { color: '#2a3240' } },"
+        "      y: { ticks: { color: '#8b98a5' }, grid: { color: '#2a3240' }, beginAtZero: true }"
+        "    }"
+        "  }"
+        "});"
+        "const ctx2 = document.getElementById('channelChart').getContext('2d');"
+        "new Chart(ctx2, {"
+        "  type: 'bar',"
+        "  data: {"
+        "    labels: " + channel_labels + ","
+        "    datasets: [{"
+        "      label: 'Вакансий',"
+        "      data: " + channel_values + ","
+        "      backgroundColor: '#60a5fa'"
+        "    }]"
+        "  },"
+        "  options: {"
+        "    responsive: true,"
+        "    indexAxis: 'y',"
+        "    plugins: { legend: { display: false } },"
+        "    scales: {"
+        "      x: { ticks: { color: '#8b98a5' }, grid: { color: '#2a3240' }, beginAtZero: true },"
+        "      y: { ticks: { color: '#8b98a5' }, grid: { color: '#2a3240' } }"
+        "    }"
+        "  }"
+        "});"
+        "</script>"
+    )
+    return html
+
+
 def render_dashboard(stats):
     """Собирает HTML-страницу из статистики."""
 
@@ -97,6 +180,8 @@ def render_dashboard(stats):
         "<h1>🤖 AI Freelancer Dashboard</h1>"
         "<div class='subtitle'>Обновлено: " + now + "</div>"
 
+        "<div class='section'><h2>📊 Динамика</h2></div>" +
+        _render_charts(stats.get("_chart_data", {})) +
         "<div class='grid'>"
         "<div class='card'><div class='label'>Вакансий всего</div><div class='value'>" + str(stats.get("jobs_total", 0)) + "</div></div>"
         "<div class='card'><div class='label'>За сегодня</div><div class='value green'>" + str(stats.get("jobs_today", 0)) + "</div></div>"

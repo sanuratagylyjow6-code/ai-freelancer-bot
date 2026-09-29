@@ -832,3 +832,38 @@ def get_job_by_id(job_id):
     cursor.close()
     conn.close()
     return result
+
+
+def get_chart_data():
+    """Данные для графиков: динамика по дням, распределение score, каналы."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    data = {}
+
+    # 1. Вакансии за 7 дней (для линейного графика)
+    cursor.execute("""
+        SELECT DATE(found_at::timestamp) AS d, COUNT(*) 
+        FROM found_jobs
+        WHERE found_at::timestamp > NOW() - INTERVAL '7 days'
+        GROUP BY d ORDER BY d
+    """)
+    data["daily"] = [(str(r[0]), r[1]) for r in cursor.fetchall()]
+
+    # 2. Топ-7 каналов (для bar-chart)
+    cursor.execute("""
+        SELECT channel, COUNT(*) FROM found_jobs
+        GROUP BY channel ORDER BY COUNT(*) DESC LIMIT 7
+    """)
+    data["channels"] = cursor.fetchall()
+
+    # 3. Распределение AI-оценок через sent_notifications (только отправленные = высокие)
+    cursor.execute("SELECT COUNT(*) FROM sent_notifications")
+    data["sent_total"] = cursor.fetchone()[0]
+
+    # 4. Сколько новых vs старых
+    cursor.execute("SELECT COUNT(*) FROM found_jobs WHERE found_at::timestamp > NOW() - INTERVAL '1 day'")
+    data["new_today"] = cursor.fetchone()[0]
+
+    cursor.close()
+    conn.close()
+    return data
