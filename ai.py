@@ -173,65 +173,72 @@ def edit_project(existing_code, tz_edit, project_type, max_fix_attempts=2):
 
 def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
     """Генерирует многофайловый проект. Возвращает dict {filename: code} или None."""
-    import re as _re
     import ast as _ast
     import time as _time
 
     format_instruction = (
-        "Верни файлы в СТРОГО таком формате (без markdown):\\n"
-        "=== FILE: filename.py ===\\n"
-        "<содержимое файла>\\n"
-        "=== FILE: another.py ===\\n"
-        "<содержимое>\\n"
-        "=== END PROJECT ===\\n"
-        "ВАЖНО: генерируй ВСЕ запрошенные файлы ОДНИМ ответом.\\n\\n"
+        "Верни файлы в СТРОГО таком формате (без markdown):" + chr(10) +
+        "=== FILE: filename.py ===" + chr(10) +
+        "<содержимое файла>" + chr(10) +
+        "=== FILE: another.py ===" + chr(10) +
+        "<содержимое>" + chr(10) +
+        "=== END PROJECT ===" + chr(10) +
+        "ВАЖНО: сгенерируй ВСЕ файлы ОДНИМ ответом." + chr(10) + chr(10)
     )
 
     type_instructions = {
         "bot": (
-            "Создай многофайловый Telegram-бот. Обязательные файлы:\\n"
-            "- bot.py — точка входа. Поднимает Flask на PORT, отвечает на GET / текстом OK. Polling в отдельном потоке.\\n"
-            "- handlers.py — все @bot.message_handler\\n"
-            "- database.py — работа с SQLite\\n"
-            "- config.py — BOT_TOKEN и настройки\\n"
-            "- requirements.txt — зависимости\\n"
-            "- README.md — краткая инструкция\\n"
-            "- test_bot.py — базовые тесты через pytest\\n"
+            "Создай многофайловый Telegram-бот. Обязательные файлы:" + chr(10) +
+            "- bot.py — Flask на PORT, GET / отдаёт OK, polling в потоке" + chr(10) +
+            "- handlers.py — все @bot.message_handler" + chr(10) +
+            "- database.py — работа с SQLite" + chr(10) +
+            "- config.py — BOT_TOKEN и настройки" + chr(10) +
+            "- requirements.txt — зависимости" + chr(10) +
+            "- README.md — инструкция" + chr(10) +
+            "- test_bot.py — pytest-тесты" + chr(10)
         ),
         "parser": (
-            "Создай многофайловый парсер. Обязательные файлы:\\n"
-            "- main.py — точка входа\\n"
-            "- parser.py — логика парсинга (requests + BeautifulSoup)\\n"
-            "- config.py — настройки\\n"
-            "- requirements.txt\\n"
-            "- README.md\\n"
+            "Создай парсер (requests + BeautifulSoup). Файлы:" + chr(10) +
+            "- main.py, parser.py, config.py, requirements.txt, README.md" + chr(10)
         ),
         "automate": (
-            "Создай многофайловый скрипт автоматизации. Обязательные файлы:\\n"
-            "- main.py — точка входа\\n"
-            "- logic.py — бизнес-логика\\n"
-            "- config.py — настройки\\n"
-            "- requirements.txt\\n"
-            "- README.md\\n"
+            "Создай скрипт автоматизации. Файлы:" + chr(10) +
+            "- main.py, logic.py, config.py, requirements.txt, README.md" + chr(10)
         ),
     }
 
     prompt = (
-        "Ты — senior Python-разработчик. " + type_instructions[project_type] + "\\n\\n"
-        "КРИТИЧНО:\\n"
-        "- Все .py файлы — валидные f-строки в print() с буквой f и кавычками.\\n"
-        "- Без markdown-обёрток. Без SyntaxError.\\n"
-        "- " + format_instruction + "\\n"
-        "=== ТЗ КЛИЕНТА ===\\n" + tz
+        "Ты — senior Python-разработчик. " + type_instructions[project_type] + chr(10) + chr(10) +
+        "КРИТИЧНО: все print() — валидные f-строки. Без markdown. Без SyntaxError." + chr(10) + chr(10) +
+        format_instruction + chr(10) +
+        "=== ТЗ КЛИЕНТА ===" + chr(10) + tz
     )
 
-    # Функция парсинга ответа Gemini
     def _parse_files(response_text):
+        """Простой парсер без regex."""
         files = {}
-        pattern = r"=== FILE:\\s*(.+?)\\s*===\\s*\\n(.*?)(?==== FILE:|=== END PROJECT|$)"
-        for match in _re.finditer(pattern, response_text, _re.DOTALL):
-            name = match.group(1).strip()
-            code = match.group(2).strip()
+        if "=== FILE:" not in response_text:
+            return files
+        # Разбиваем по маркеру "=== FILE:"
+        parts = response_text.split("=== FILE:")
+        for part in parts[1:]:
+            if "===" not in part:
+                continue
+            # Имя файла — до следующего ==="
+            idx = part.find("===")
+            name = part[:idx].strip()
+            rest = part[idx + 3:]
+            # Отрезаем конец по === END PROJECT
+            if "=== END PROJECT" in rest:
+                rest = rest[:rest.find("=== END PROJECT")]
+            code = rest.strip()
+            # Чистим markdown-обёртки
+            if code.startswith("```"):
+                lines = code.split(chr(10))
+                lines = lines[1:]  # убираем ```python
+                if lines and lines[-1].strip() == "```":
+                    lines = lines[:-1]
+                code = chr(10).join(lines).strip()
             if name and code:
                 files[name] = code
         return files
@@ -241,11 +248,11 @@ def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
         return None
 
     files = _parse_files(response)
-
     if not files:
+        print("Парсинг не дал файлов. Ответ (первые 500): " + str(response)[:500], flush=True)
         return None
 
-    # Валидация синтаксиса .py файлов
+    # Валидация синтаксиса
     for attempt in range(max_fix_attempts):
         broken = None
         for name, code in files.items():
@@ -260,10 +267,9 @@ def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
         bad_name, bad_code, err = broken
         print("SyntaxError в " + bad_name + ": " + str(err), flush=True)
         fix_prompt = (
-            "Файл " + bad_name + " содержит SyntaxError: " + str(err) + "\\n\\n"
-            "Вот его содержимое:\\n" + bad_code + "\\n\\n"
-            "Исправь ТОЛЬКО синтаксис. Верни весь проект заново в формате "
-            "(=== FILE: имя === ... === END PROJECT ===)."
+            "Файл " + bad_name + " содержит SyntaxError: " + str(err) + chr(10) + chr(10) +
+            "Вот код:" + chr(10) + bad_code + chr(10) + chr(10) +
+            "Исправь синтаксис. Верни весь проект в формате === FILE: name === ... === END PROJECT ==="
         )
         response = ask_ai(fix_prompt, model="gemini-3.5-flash-lite", max_retries=2)
         if not response or "Ошибка ИИ" in response:
@@ -272,25 +278,20 @@ def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
         if new_files:
             files = new_files
 
-    # RETRY если файлов мало — генерация сорвалась
+    # Retry при малом числе файлов
     if len(files) < 4:
-        print("⚠ Мало файлов (" + str(len(files)) + "). Retry...", flush=True)
-        print("Сырой ответ Gemini (первые 800):", flush=True)
-        print(response[:800], flush=True)
-
+        print("Мало файлов (" + str(len(files)) + "). Retry...", flush=True)
+        print("Сырой ответ (500): " + str(response)[:500], flush=True)
         for retry_idx in range(2):
             _time.sleep(3)
-            print("Retry #" + str(retry_idx + 1), flush=True)
             response = ask_ai(prompt, model="gemini-flash-latest", max_retries=2)
-            if not response or "Ошибка ИИ" in response or "Лимит ИИ" in response:
+            if not response or "Ошибка ИИ" in response:
                 continue
             new_files = _parse_files(response)
             if len(new_files) >= 4:
-                print("✅ Retry успешен, файлов: " + str(len(new_files)), flush=True)
+                print("Retry успешен, файлов: " + str(len(new_files)), flush=True)
                 return new_files
-            print("Retry дал " + str(len(new_files)) + " файлов", flush=True)
-
-        print("❌ После retry всё ещё мало файлов: " + str(len(files)), flush=True)
+        print("После retry всё ещё мало: " + str(len(files)), flush=True)
 
     return files
 
