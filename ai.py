@@ -239,6 +239,11 @@ def generate_full_project(tz, project_type="bot", max_fix_attempts=2):
                 if lines and lines[-1].strip() == "```":
                     lines = lines[:-1]
                 code = chr(10).join(lines).strip()
+            # Фильтр: пропускаем .txt дубликаты .py (Gemini иногда генерит config.txt вместо config.py)
+            if name.endswith(".txt") and not name.endswith("requirements.txt"):
+                base_py = name.replace(".txt", ".py")
+                if base_py in files or ("config" in name.lower()):
+                    continue
             if name and code:
                 files[name] = code
         return files
