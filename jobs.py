@@ -403,7 +403,7 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
             job_ids = []
             for jid, cat, title, desc, url, score, reason in approved:
                 job_ids.append(jid)
-                header = "[" + cat + "] " + title
+                header = "#" + str(jid) + " [" + cat + "] " + title
                 if score is not None:
                     header += "  " + str(score) + "/10"
                 lines.append(header)

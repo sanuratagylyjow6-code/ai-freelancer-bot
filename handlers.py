@@ -266,7 +266,7 @@ def handle_find(message):
                 return
             lines = ["Найдено " + str(len(results)) + " по '" + keyword + "':\n"]
             for jid, ch, cat, title, desc, url in results:
-                lines.append("[" + cat + "] " + title)
+                lines.append("#" + str(jid) + " [" + cat + "] " + title)
                 lines.append("   " + desc[:120] + "...")
                 lines.append("   " + url + "\n")
             send_code(message, "\n".join(lines))
