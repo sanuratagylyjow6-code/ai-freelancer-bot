@@ -923,3 +923,43 @@ def get_jobs_by_status(user_id, status=None, limit=20):
     cursor.close()
     conn.close()
     return result
+
+
+def save_user_file(user_id, filename, content, file_type):
+    conn = get_conn()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute("""
+        INSERT INTO user_files (user_id, filename, content, file_type, uploaded_at)
+        VALUES (%s, %s, %s, %s, %s)
+    """, (user_id, filename, content, file_type, now))
+    conn.commit()
+    fid = cursor.lastrowid
+    cursor.close()
+    conn.close()
+    return fid
+
+
+def get_latest_user_file(user_id):
+    """Возвращает последний файл юзера: (filename, content, file_type, uploaded_at) или None."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT filename, content, file_type, uploaded_at
+        FROM user_files
+        WHERE user_id = %s
+        ORDER BY id DESC LIMIT 1
+    """, (user_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def clear_user_files(user_id):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM user_files WHERE user_id = %s", (user_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()

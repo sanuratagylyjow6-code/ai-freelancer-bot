@@ -14,7 +14,8 @@ from database import (save_jobs, search_jobs, set_filter, get_filter, clear_filt
                        save_full_project, get_user_full_projects, get_full_project,
                        search_jobs_full, get_quick_stats, parse_filter_keywords,
                        save_note, get_user_notes, get_job_by_id,
-                       set_job_status, get_job_status, get_jobs_by_status)
+                       set_job_status, get_job_status, get_jobs_by_status,
+                       save_user_file, get_latest_user_file, clear_user_files)
 from config import TELEGRAM_MAX_LEN, MAX_ATTEMPTS, OWNER_ID
 
 
@@ -567,6 +568,15 @@ def handle_make_full(message):
         return
 
     ptype = _detect_project_type(tz)
+
+    # Проверяем, есть ли у клиента загруженный файл — используем как доп. ТЗ
+    user_id = message.from_user.id
+    file_row = get_latest_user_file(user_id)
+    if file_row:
+        filename, file_content, _, _ = file_row
+        tz = tz + "\n\n=== ДОП. ТЗ ИЗ ФАЙЛА " + filename + " ===\n" + file_content[:8000]
+        bot.reply_to(message, "📎 Учту содержимое файла " + filename)
+
     bot.reply_to(message, "🧠 Генерирую многофайловый проект (" + ptype + ")... 40-90 сек.")
 
     try:
@@ -973,3 +983,78 @@ def handle_test_code(message):
             "❌ Тест #" + str(pid) + " провален\n\n"
             "Ошибка:\n" + err
         )
+
+
+# ============================================================
+# ПРИЁМ ФАЙЛОВ ОТ КЛИЕНТА
+# ============================================================
+
+@bot.message_handler(content_types=['document'])
+def handle_document(message):
+    """Принимает документ от клиента и извлекает из него текст."""
+    try:
+        doc = message.document
+        filename = doc.file_name or "file"
+        file_size = doc.file_size or 0
+
+        # Лимит 5 МБ
+        if file_size > 5 * 1024 * 1024:
+            bot.reply_to(message, "⚠ Файл больше 5 МБ. Пришли поменьше.")
+            return
+
+        bot.reply_to(message, "📥 Скачиваю " + filename + "...")
+
+        # Скачиваем файл из Telegram
+        file_info = bot.get_file(doc.file_id)
+        downloaded = bot.download_file(file_info.file_path)
+
+        # Парсим
+        from file_parser import extract_text
+        text, err = extract_text(downloaded, filename)
+
+        if err:
+            bot.reply_to(message, "❌ " + err)
+            return
+
+        # Сохраняем в БД
+        user_id = message.from_user.id
+        file_type = filename.rsplit(".", 1)[-1].lower() if "." in filename else "txt"
+        save_user_file(user_id, filename, text, file_type)
+
+        preview = text[:400].replace("\n", " ")
+        bot.reply_to(message,
+            "✅ Файл принят: " + filename + "\n"
+            "📏 Извлечено: " + str(len(text)) + " символов\n\n"
+            "Превью:\n" + preview + "...\n\n"
+            "Теперь пиши /make_full <ТЗ> — бот учтёт содержимое файла."
+        )
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, "🔥 Ошибка приёма: " + traceback.format_exc()[-300:])
+
+
+@bot.message_handler(commands=['clearfile'])
+def handle_clearfile(message):
+    """Удаляет последний файл юзера."""
+    user_id = message.from_user.id
+    clear_user_files(user_id)
+    bot.reply_to(message, "🗑 Файлы удалены. Следующий /make_full будет без них.")
+
+
+@bot.message_handler(commands=['myfile'])
+def handle_myfile(message):
+    """Показывает, какой файл сейчас сохранён."""
+    user_id = message.from_user.id
+    row = get_latest_user_file(user_id)
+    if not row:
+        bot.reply_to(message, "📂 Нет сохранённых файлов. Отправь документ.")
+        return
+    filename, content, ftype, uploaded = row
+    preview = content[:300].replace("\n", " ")
+    bot.reply_to(message,
+        "📄 Последний файл: " + filename + "\n"
+        "Тип: " + ftype + "\n"
+        "Загружен: " + uploaded + "\n"
+        "Размер: " + str(len(content)) + " символов\n\n"
+        "Превью:\n" + preview + "..."
+    )

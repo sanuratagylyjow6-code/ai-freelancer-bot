@@ -5,3 +5,5 @@ beautifulsoup4
 flask
 gunicorn
 psycopg2-binary
+
+pypdf==4.3.1
