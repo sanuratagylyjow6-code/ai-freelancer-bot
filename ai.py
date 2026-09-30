@@ -403,23 +403,47 @@ def compose_full_tz(brief, qa_pairs):
 
 
 def evaluate_job_complexity(title, description):
-    """Оценивает сложность/время задачи. Возвращает строку типа '~2 часа' или None."""
+    """Оценивает сложность задачи. Гибкий парсинг + логирование."""
     prompt = (
         "Оцени время на выполнение задачи для опытного Python-разработчика." + chr(10) +
         "Задача: " + title + chr(10) +
         "Описание: " + description[:400] + chr(10) + chr(10) +
-        "Ответь ОДНОЙ строкой в формате:" + chr(10) +
-        "TIME: <число + единица>" + chr(10) +
+        "Ответь СТРОГО одной строкой:" + chr(10) +
+        "TIME: <число> <единица>" + chr(10) +
         "Примеры: 'TIME: 30 минут', 'TIME: 2 часа', 'TIME: 3 дня', 'TIME: 2 недели'." + chr(10) +
-        "Без объяснений."
+        "Только одна строка, без пояснений."
     )
     result = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=1)
     if not result:
+        print("⏱ complexity: пустой ответ", flush=True)
         return None
+
+    # Логируем сырой ответ (первые 200 символов) — для отладки
+    print("⏱ complexity raw: " + str(result)[:200], flush=True)
+
     import re
-    m = re.search(r"TIME:\s*(.+?)(?:$|\n)", result)
+
+    # Вариант 1: правильный формат "TIME: X"
+    m = re.search(r"TIME:\s*(.+?)(?:$|\n)", result, re.IGNORECASE)
     if m:
-        return m.group(1).strip()[:30]
+        val = m.group(1).strip()[:30]
+        if val:
+            return val
+
+    # Вариант 2: любое "число + единица времени" где-то в ответе
+    m2 = re.search(
+        r"(\d+[\.,]?\d*)\s*(минут|час|день|дней|дня|недел|недели|неделю|месяц|месяцев)",
+        result, re.IGNORECASE
+    )
+    if m2:
+        return m2.group(0).strip()[:30]
+
+    # Вариант 3: ответ типа "~2 дня" или "около 5 часов"
+    m3 = re.search(r"([~около\s]+\d+[^\n]{0,20})", result, re.IGNORECASE)
+    if m3:
+        return m3.group(1).strip()[:30]
+
+    print("⏱ complexity: не распарсили ответ", flush=True)
     return None
 
 
