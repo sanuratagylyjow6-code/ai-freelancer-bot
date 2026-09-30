@@ -495,8 +495,8 @@ def maybe_send_daily_summaries():
 
     now = datetime.now(timezone.utc)
 
-    # Утреннее окно: 6:00-10:00 UTC = 9:00-13:00 МСК
-    if not (6 <= now.hour < 10):
+    # Утреннее окно: 4:00-8:00 UTC = 9:00-13:00 по Туркменистану (UTC+5)
+    if not (4 <= now.hour < 8):
         return {"skipped": "not morning"}
 
     today = now.strftime("%Y-%m-%d")
