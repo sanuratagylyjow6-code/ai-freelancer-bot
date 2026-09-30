@@ -554,9 +554,11 @@ def send_followup_reminders():
     return {"date": today, "sent": sent}
 
 def broadcast_to_all_users(use_ai_filter=True, min_score=6):
+    """Парсит каналы и рассылает релевантные вакансии с inline-кнопками."""
     import time as time_module
     import database
     from core import bot
+    from telebot import types
 
     jobs = fetch_all_sources_async()
     if not jobs:
@@ -602,31 +604,41 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
                     time_module.sleep(4)
             if not approved:
                 continue
-            lines = ["Новые вакансии по фильтру '" + keywords + "' (" + str(len(approved)) + "):\n"]
             job_ids = []
             for jid, cat, title, desc, url, score, reason in approved:
                 job_ids.append(jid)
-                header = "#" + str(jid) + " [" + cat + "] " + title
+                lines = ["#" + str(jid) + " [" + cat + "] " + title]
+                lines.append("")
+                lines.append(desc[:180] + "...")
                 if score is not None:
-                    header += "  " + str(score) + "/10"
-                lines.append(header)
-                lines.append("   " + desc[:150] + "...")
+                    lines.append("")
+                    lines.append("\u2B50 " + str(score) + "/10")
                 if reason:
-                    lines.append("   " + reason)
-                lines.append("   " + url + "\n")
-            text = "\n".join(lines)
-            for part in [text[i:i+4000] for i in range(0, len(text), 4000)]:
+                    lines.append("\U0001F4A1 " + reason)
+                lines.append("")
+                lines.append(url)
+                text = "\n".join(lines)
+
+                markup = types.InlineKeyboardMarkup()
+                markup.row(
+                    types.InlineKeyboardButton("\u2705 Откликнулся", callback_data="apply_" + str(jid)),
+                    types.InlineKeyboardButton("\u274C Скрыть", callback_data="hide_" + str(jid)),
+                )
+                markup.row(
+                    types.InlineKeyboardButton("\U0001F4DD Заметка", callback_data="note_" + str(jid)),
+                )
+
                 try:
-                    bot.send_message(user_id, part, disable_web_page_preview=True)
+                    bot.send_message(user_id, text, reply_markup=markup, disable_web_page_preview=True)
                 except Exception as e:
-                    print("Не смог отправить " + str(user_id) + ": " + str(e))
+                    print("Не смог отправить " + str(user_id) + ": " + str(e), flush=True)
                     break
             database.mark_jobs_sent(user_id, job_ids)
             sent_users += 1
             sent_jobs_total += len(job_ids)
         except Exception:
             import traceback
-            print("Ошибка рассылки для " + str(user_id) + ":\n" + traceback.format_exc())
+            print("Ошибка рассылки для " + str(user_id) + ":\n" + traceback.format_exc(), flush=True)
 
     return {
         "parsed": len(jobs), "saved": total_saved,
