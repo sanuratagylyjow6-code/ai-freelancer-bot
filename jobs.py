@@ -587,7 +587,7 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
             if not candidates:
                 continue
             if not use_ai_filter:
-                approved = [(j[0], j[1], j[2], j[3], j[4], None, None) for j in candidates]
+                approved = [(j[0], j[1], j[2], j[3], j[4], None, None, None) for j in candidates]
             else:
                 from ai import evaluate_job_relevance
                 approved = []
@@ -597,7 +597,14 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
                         ai_error_count += 1
                         continue
                     if score >= min_score:
-                        approved.append((jid, cat, title, desc, url, score, reason))
+                        # Оцениваем сложность только для релевантных вакансий
+                        complexity = None
+                        try:
+                            complexity = evaluate_job_complexity(title, desc)
+                        except Exception:
+                            pass
+                        time_module.sleep(4)
+                        approved.append((jid, cat, title, desc, url, score, reason, complexity))
                     else:
                         ai_filtered_count += 1
                         database.mark_jobs_sent(user_id, [jid])
@@ -605,7 +612,9 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
             if not approved:
                 continue
             job_ids = []
-            for jid, cat, title, desc, url, score, reason in approved:
+            for item in approved:
+                jid, cat, title, desc, url, score, reason = item[0], item[1], item[2], item[3], item[4], item[5], item[6]
+                complexity = item[7] if len(item) > 7 else None
                 job_ids.append(jid)
                 lines = ["#" + str(jid) + " [" + cat + "] " + title]
                 lines.append("")
@@ -615,6 +624,8 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
                     lines.append("\u2B50 " + str(score) + "/10")
                 if reason:
                     lines.append("\U0001F4A1 " + reason)
+                if complexity:
+                    lines.append("\u23F1 Оценка: " + complexity)
                 lines.append("")
                 lines.append(url)
                 text = "\n".join(lines)

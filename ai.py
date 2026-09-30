@@ -402,6 +402,27 @@ def compose_full_tz(brief, qa_pairs):
     return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
 
 
+def evaluate_job_complexity(title, description):
+    """Оценивает сложность/время задачи. Возвращает строку типа '~2 часа' или None."""
+    prompt = (
+        "Оцени время на выполнение задачи для опытного Python-разработчика." + chr(10) +
+        "Задача: " + title + chr(10) +
+        "Описание: " + description[:400] + chr(10) + chr(10) +
+        "Ответь ОДНОЙ строкой в формате:" + chr(10) +
+        "TIME: <число + единица>" + chr(10) +
+        "Примеры: 'TIME: 30 минут', 'TIME: 2 часа', 'TIME: 3 дня', 'TIME: 2 недели'." + chr(10) +
+        "Без объяснений."
+    )
+    result = ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=1)
+    if not result:
+        return None
+    import re
+    m = re.search(r"TIME:\s*(.+?)(?:$|\n)", result)
+    if m:
+        return m.group(1).strip()[:30]
+    return None
+
+
 def run_code(code_text):
     namespace = {}
     try:
