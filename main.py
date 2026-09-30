@@ -74,6 +74,13 @@ def cron_task():
             print("\u23F0 Cron: фоновая задача запущена", flush=True)
             stats = jobs_module.broadcast_to_all_users()
             print(f"\u2705 Cron завершён: {stats}", flush=True)
+
+            # Проверка на утреннюю сводку (дешёвая операция)
+            try:
+                summary_stats = jobs_module.maybe_send_daily_summaries()
+                print(f"\U0001F305 Сводка: {summary_stats}", flush=True)
+            except Exception as se:
+                print(f"\u26A0 Ошибка сводки: {se}", flush=True)
         except Exception:
             print(f"\U0001F525 Cron упал:\n{traceback.format_exc()}", flush=True)
         finally:

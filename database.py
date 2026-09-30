@@ -1023,3 +1023,54 @@ def clear_draft(user_id):
     conn.commit()
     cursor.close()
     conn.close()
+
+
+# ============================================================
+# ЕЖЕДНЕВНАЯ СВОДКА
+# ============================================================
+
+def check_summary_sent(user_id, date_str):
+    """Проверяет, отправляли ли сводку юзеру в этот день."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT last_date FROM summary_log WHERE user_id = %s",
+        (user_id,)
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row and row[0] == date_str
+
+
+def mark_summary_sent(user_id, date_str):
+    """Записывает факт отправки сводки."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO summary_log (user_id, last_date) VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET last_date = EXCLUDED.last_date
+    """, (user_id, date_str))
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+
+def get_recent_jobs_24h(limit=5):
+    """Возвращает последние вакансии за 24 часа.
+
+    Формат: (id, channel, category, title, description, post_url)
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT id, channel, category, title, description, post_url
+        FROM found_jobs
+        WHERE found_at::timestamp > NOW() - INTERVAL '24 hours'
+        ORDER BY id DESC
+        LIMIT %s
+    """, (limit,))
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result

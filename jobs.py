@@ -456,6 +456,62 @@ def fetch_all_sources_async():
 
     return all_jobs
 
+
+def send_daily_summary(user_id):
+    """Отправляет утреннюю сводку — топ-5 свежих вакансий за 24 часа."""
+    import database
+    from core import bot
+
+    jobs = database.get_recent_jobs_24h(limit=5)
+    if not jobs:
+        return False
+
+    lines = ["🌅 Утренняя сводка — топ-" + str(len(jobs)) + " за 24ч:", ""]
+    for jid, ch, cat, title, desc, url in jobs:
+        short_title = title[:80]
+        lines.append("#" + str(jid) + " [" + cat + "] " + short_title)
+        lines.append("   " + desc[:120] + "...")
+        lines.append("   " + url)
+        lines.append("")
+
+    lines.append("Команды: /search <слово>, /budget <id>, /apply <id>")
+
+    text = "\n".join(lines)
+    try:
+        bot.send_message(user_id, text, disable_web_page_preview=True)
+        return True
+    except Exception as e:
+        print("Не смог отправить сводку " + str(user_id) + ": " + str(e), flush=True)
+        return False
+
+
+def maybe_send_daily_summaries():
+    """Проверяет время и рассылает утренние сводки всем активным юзерам.
+
+    Вызывается из /cron. Дешёвая проверка — если уже отправляли сегодня, пропускает.
+    """
+    from datetime import datetime, timezone
+    import database
+
+    now = datetime.now(timezone.utc)
+
+    # Утреннее окно: 6:00-10:00 UTC = 9:00-13:00 МСК
+    if not (6 <= now.hour < 10):
+        return {"skipped": "not morning"}
+
+    today = now.strftime("%Y-%m-%d")
+    users = database.get_all_users_with_filters()
+    sent = 0
+
+    for user_id, _ in users:
+        if database.check_summary_sent(user_id, today):
+            continue
+        if send_daily_summary(user_id):
+            database.mark_summary_sent(user_id, today)
+            sent += 1
+
+    return {"date": today, "sent": sent}
+
 def broadcast_to_all_users(use_ai_filter=True, min_score=6):
     import time as time_module
     import database
