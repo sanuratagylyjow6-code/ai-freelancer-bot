@@ -1205,3 +1205,57 @@ def handle_cleartz(message):
 
 
 # Регистрируем команды
+
+
+# ============================================================
+# INLINE-КНОПКИ ПОД ВАКАНСИЯМИ
+# ============================================================
+
+@bot.callback_query_handler(func=lambda call: True)
+def handle_job_callback(call):
+    """Обработка нажатий на inline-кнопки под вакансиями."""
+    try:
+        data = call.data or ""
+        user_id = call.from_user.id
+
+        # --- ✅ Откликнулся ---
+        if data.startswith("apply_"):
+            jid = int(data.split("_", 1)[1])
+            set_job_status(user_id, jid, "in_work")
+            bot.answer_callback_query(call.id, "✅ Отмечено как 'в работе'")
+            # Убираем кнопки, чтобы не нажимали дважды
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=None
+            )
+
+        # --- ❌ Скрыть ---
+        elif data.startswith("hide_"):
+            jid = int(data.split("_", 1)[1])
+            set_job_status(user_id, jid, "archived")
+            bot.answer_callback_query(call.id, "❌ Скрыто из будущих рассылок")
+            bot.edit_message_reply_markup(
+                chat_id=call.message.chat.id,
+                message_id=call.message.message_id,
+                reply_markup=None
+            )
+
+        # --- 📝 Заметка ---
+        elif data.startswith("note_"):
+            jid = int(data.split("_", 1)[1])
+            bot.answer_callback_query(
+                call.id,
+                "Напиши: /notes add " + str(jid) + " <текст>"
+            )
+
+        else:
+            bot.answer_callback_query(call.id, "")
+
+    except Exception as e:
+        import traceback
+        print("Ошибка callback: " + traceback.format_exc(), flush=True)
+        try:
+            bot.answer_callback_query(call.id, "Ошибка: " + str(e)[:100])
+        except Exception:
+            pass
