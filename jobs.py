@@ -512,6 +512,47 @@ def maybe_send_daily_summaries():
 
     return {"date": today, "sent": sent}
 
+
+def send_followup_reminders():
+    """Раз в день напоминает юзерам о зависших вакансиях in_work > 3 дней."""
+    from datetime import datetime, timezone
+    import database
+    from core import bot
+
+    now = datetime.now(timezone.utc)
+    today = now.strftime("%Y-%m-%d")
+
+    users = database.get_all_users_with_in_work()
+    sent = 0
+
+    for user_id in users:
+        if database.check_followup_sent(user_id, today):
+            continue
+
+        stale = database.get_stale_jobs(user_id, days=3)
+        if not stale:
+            continue
+
+        lines = ["⏰ Напоминание: " + str(len(stale)) + " вакансий в работе >3 дней:", ""]
+        for jid, title, url, status, updated in stale:
+            short_title = (title or "?")[:70]
+            lines.append("#" + str(jid) + " " + short_title)
+            lines.append("   🕐 Обновлено: " + (updated or "")[:16])
+            lines.append("   " + (url or ""))
+            lines.append("")
+
+        lines.append("Сменить статус: /status <id> won/lost/archived")
+        text = "\n".join(lines)
+
+        try:
+            bot.send_message(user_id, text, disable_web_page_preview=True)
+            database.mark_followup_sent(user_id, today)
+            sent += 1
+        except Exception as e:
+            print("Не смог отправить follow-up " + str(user_id) + ": " + str(e), flush=True)
+
+    return {"date": today, "sent": sent}
+
 def broadcast_to_all_users(use_ai_filter=True, min_score=6):
     import time as time_module
     import database

@@ -81,6 +81,13 @@ def cron_task():
                 print(f"\U0001F305 Сводка: {summary_stats}", flush=True)
             except Exception as se:
                 print(f"\u26A0 Ошибка сводки: {se}", flush=True)
+
+            # Follow-up напоминания (раз в день)
+            try:
+                followup_stats = jobs_module.send_followup_reminders()
+                print(f"\u23F0 Follow-up: {followup_stats}", flush=True)
+            except Exception as fe:
+                print(f"\u26A0 Ошибка follow-up: {fe}", flush=True)
         except Exception:
             print(f"\U0001F525 Cron упал:\n{traceback.format_exc()}", flush=True)
         finally:

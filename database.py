@@ -1127,3 +1127,69 @@ def get_recent_jobs_for_user_filtered(user_id, keywords_string, limit=5):
     cursor.close()
     conn.close()
     return result
+
+
+# ============================================================
+# FOLLOW-UP НАПОМИНАНИЯ
+# ============================================================
+
+def get_stale_jobs(user_id, days=3):
+    """Вакансии в статусе in_work, обновлённые >N дней назад.
+
+    Возвращает список: (job_id, title, post_url, status, updated_at)
+    """
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT s.job_id, f.title, f.post_url, s.status, s.updated_at
+        FROM job_statuses s
+        LEFT JOIN found_jobs f ON f.id = s.job_id
+        WHERE s.user_id = %s
+          AND s.status = 'in_work'
+          AND s.updated_at::timestamp < NOW() - INTERVAL '%s days'
+        ORDER BY s.updated_at ASC
+        LIMIT 10
+    """, (user_id, days))
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
+
+
+def get_all_users_with_in_work():
+    """Юзеры, у которых есть вакансии в статусе in_work."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT DISTINCT user_id FROM job_statuses WHERE status = 'in_work'
+    """)
+    result = [r[0] for r in cursor.fetchall()]
+    cursor.close()
+    conn.close()
+    return result
+
+
+def check_followup_sent(user_id, date_str):
+    """Проверяет, отправляли ли follow-up юзеру в этот день."""
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT last_date FROM followup_log WHERE user_id = %s",
+        (user_id,)
+    )
+    row = cursor.fetchone()
+    cursor.close()
+    conn.close()
+    return row and row[0] == date_str
+
+
+def mark_followup_sent(user_id, date_str):
+    conn = get_conn()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO followup_log (user_id, last_date) VALUES (%s, %s)
+        ON CONFLICT (user_id) DO UPDATE SET last_date = EXCLUDED.last_date
+    """, (user_id, date_str))
+    conn.commit()
+    cursor.close()
+    conn.close()
