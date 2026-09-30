@@ -375,12 +375,93 @@ def fetch_all_sources():
 # РАССЫЛКА
 # ============================================================
 
+
+def fetch_all_sources_async():
+    """Параллельно скачивает TG-каналы и RSS-фиды, потом парсит в sync."""
+    from async_fetcher import run_async, fetch_tg_channels, fetch_rss_feeds
+    from bs4 import BeautifulSoup
+
+    # Список источников
+    tg_channels = [
+        "python_jobs_ru", "remote_python_jobs", "pythonrabota",
+        "job_python", "freelance_zakazy", "devjobs",
+    ]
+    rss_sources = [
+        ("https://weworkremotely.com/categories/remote-programming-jobs.rss", "wwr"),
+        ("https://www.freelancer.com/rss.xml", "freelancer"),
+    ]
+
+    # Скачиваем ВСЁ параллельно
+    tg_posts = run_async(fetch_tg_channels(tg_channels, max_posts=2))
+    rss_texts = run_async(fetch_rss_feeds(rss_sources))
+
+    all_jobs = []
+
+    # Парсим TG (последовательно — быстро, это локальная работа)
+    for ch, posts in tg_posts.items():
+        for post in posts:
+            try:
+                text_div = post.find("div", class_="tgme_widget_message_text")
+                if not text_div:
+                    continue
+                time_tag = post.find("time")
+                posted_at = time_tag.get("datetime") if time_tag else ""
+                post_id = post.get("data-post", "")
+                raw_text = text_div.get_text(separator="\n", strip=True)
+                prefix = post_id.replace("/", "_") or ch
+
+                if ch == "python_jobs_ru":
+                    jobs = _parse_python_jobs_ru(raw_text, prefix)
+                elif ch == "freelance_zakazy":
+                    jobs = _parse_freelance_zakazy(raw_text, prefix)
+                elif ch == "job_python":
+                    jobs = _parse_job_python(raw_text, prefix)
+                else:
+                    jobs = _parse_single_job(raw_text, prefix)
+
+                for j in jobs:
+                    j["post_url"] = "https://t.me/" + post_id
+                    j["posted_at"] = posted_at
+                    j["channel"] = ch
+                all_jobs.extend(jobs)
+            except Exception as e:
+                print("[TG] " + ch + ": " + str(e), flush=True)
+
+    # Парсим RSS
+    for url, ptype in rss_sources:
+        xml = rss_texts.get(ptype)
+        if not xml:
+            continue
+        try:
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(xml)
+            items = []
+            for item in root.findall(".//item")[:10]:
+                guid = item.findtext("guid") or item.findtext("link") or ""
+                title = item.findtext("title") or ""
+                link = item.findtext("link") or ""
+                desc = item.findtext("description") or ""
+                pub = item.findtext("pubDate") or ""
+                items.append((guid, title, link, desc, pub))
+
+            if ptype == "wwr":
+                jobs = _parse_wwr_rss(items)
+            elif ptype == "freelancer":
+                jobs = _parse_freelancer_rss(items)
+            else:
+                jobs = []
+            all_jobs.extend(jobs)
+        except Exception as e:
+            print("[RSS] " + ptype + ": " + str(e), flush=True)
+
+    return all_jobs
+
 def broadcast_to_all_users(use_ai_filter=True, min_score=6):
     import time as time_module
     import database
     from core import bot
 
-    jobs = fetch_all_sources()
+    jobs = fetch_all_sources_async()
     if not jobs:
         return {"parsed": 0, "saved": 0, "sent_users": 0, "sent_jobs": 0,
                 "ai_filtered": 0, "ai_errors": 0}
