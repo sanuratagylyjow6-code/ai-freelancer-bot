@@ -589,7 +589,7 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
             if not use_ai_filter:
                 approved = [(j[0], j[1], j[2], j[3], j[4], None, None, None) for j in candidates]
             else:
-                from ai import evaluate_job_relevance
+                from ai import evaluate_job_relevance, evaluate_job_complexity
                 approved = []
                 for jid, cat, title, desc, url in candidates:
                     score, reason = evaluate_job_relevance(title, desc, keywords)
