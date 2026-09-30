@@ -601,8 +601,10 @@ def broadcast_to_all_users(use_ai_filter=True, min_score=6):
                         complexity = None
                         try:
                             complexity = evaluate_job_complexity(title, desc)
-                        except Exception:
-                            pass
+                        except Exception as ce:
+                            import traceback
+                            print("\u23F1 ОШИБКА complexity: " + str(ce), flush=True)
+                            print(traceback.format_exc()[:500], flush=True)
                         time_module.sleep(4)
                         approved.append((jid, cat, title, desc, url, score, reason, complexity))
                     else:
