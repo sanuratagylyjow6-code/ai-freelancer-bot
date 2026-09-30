@@ -457,17 +457,17 @@ def fetch_all_sources_async():
     return all_jobs
 
 
-def send_daily_summary(user_id):
-    """Отправляет утреннюю сводку — топ-5 свежих вакансий за 24 часа."""
+def send_daily_summary(user_id, keywords):
+    """Отправляет утреннюю сводку — топ-5 релевантных вакансий."""
     import database
     from core import bot
 
-    jobs = database.get_recent_jobs_24h(limit=5)
+    jobs = database.get_recent_jobs_for_user_filtered(user_id, keywords, limit=5)
     if not jobs:
         return False
 
-    lines = ["🌅 Утренняя сводка — топ-" + str(len(jobs)) + " за 24ч:", ""]
-    for jid, ch, cat, title, desc, url in jobs:
+    lines = ["🌅 Утренняя сводка — топ-" + str(len(jobs)) + ":", ""]
+    for jid, cat, title, desc, url in jobs:
         short_title = title[:80]
         lines.append("#" + str(jid) + " [" + cat + "] " + short_title)
         lines.append("   " + desc[:120] + "...")
@@ -503,10 +503,10 @@ def maybe_send_daily_summaries():
     users = database.get_all_users_with_filters()
     sent = 0
 
-    for user_id, _ in users:
+    for user_id, keywords in users:
         if database.check_summary_sent(user_id, today):
             continue
-        if send_daily_summary(user_id):
+        if send_daily_summary(user_id, keywords):
             database.mark_summary_sent(user_id, today)
             sent += 1
 

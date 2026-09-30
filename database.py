@@ -1074,3 +1074,56 @@ def get_recent_jobs_24h(limit=5):
     cursor.close()
     conn.close()
     return result
+
+
+def get_recent_jobs_for_user_filtered(user_id, keywords_string, limit=5):
+    """Последние N вакансий, подходящих под фильтр юзера.
+
+    Отличие от get_new_jobs_for_user_filtered: НЕ исключает уже отправленные.
+    Для утренней сводки — это правильно: показываем топ заново.
+    """
+    f = parse_filter_keywords(keywords_string)
+    include = f["include"]
+    exclude = f["exclude"]
+    lang = f["lang"]
+
+    if not include and not lang:
+        return []
+
+    conn = get_conn()
+    cursor = conn.cursor()
+
+    where_parts = []
+    params = []
+
+    # Include
+    if include:
+        inc_parts = []
+        for w in include:
+            inc_parts.append("(LOWER(f.title) LIKE %s OR LOWER(f.description) LIKE %s)")
+            params.append("%" + w + "%")
+            params.append("%" + w + "%")
+        where_parts.append("(" + " OR ".join(inc_parts) + ")")
+
+    # Language
+    if lang == "en":
+        where_parts.append("(f.title !~ '[А-Яа-яЁё]')")
+    elif lang == "ru":
+        where_parts.append("(f.title ~ '[А-Яа-яЁё]')")
+
+    # Exclude
+    for w in exclude:
+        where_parts.append("(LOWER(f.title) NOT LIKE %s AND LOWER(f.description) NOT LIKE %s)")
+        params.append("%" + w + "%")
+        params.append("%" + w + "%")
+
+    sql = ("SELECT f.id, f.category, f.title, f.description, f.post_url "
+           "FROM found_jobs f WHERE " + " AND ".join(where_parts) +
+           " ORDER BY f.id DESC LIMIT %s")
+    params.append(limit)
+
+    cursor.execute(sql, params)
+    result = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return result
