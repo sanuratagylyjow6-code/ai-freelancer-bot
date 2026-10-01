@@ -498,6 +498,79 @@ def fix_code(code_and_error):
     return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
 
 
+# Глобальная настройка модели (переключается через /model)
+_CURRENT_MODEL = AI_MODEL
+
+
+def set_model(model_name):
+    """Меняет текущую модель. Возвращает новое имя."""
+    global _CURRENT_MODEL
+    valid = ["gemini-3.5-flash-lite", "gemini-2.5-pro", "gemini-flash-latest", "gemini-pro-latest"]
+    if model_name in valid:
+        _CURRENT_MODEL = model_name
+    return _CURRENT_MODEL
+
+
+def get_current_model():
+    """Возвращает текущую модель."""
+    return _CURRENT_MODEL
+
+
+def generate_tests(code_text):
+    """Генерирует pytest-тесты к коду."""
+    prompt = (
+        "Ты — senior Python-разработчик. Сгенерируй pytest-тесты для этого кода." + chr(10) + chr(10) +
+        "Требования:" + chr(10) +
+        "- Файл test_*.py" + chr(10) +
+        "- Импортируй тестируемые функции из основного модуля" + chr(10) +
+        "- Используй fixtures где нужно" + chr(10) +
+        "- Покрой основные сценарии и edge cases" + chr(10) +
+        "- Без markdown-обёрток" + chr(10) + chr(10) +
+        "Код:" + chr(10) + code_text[:3000]
+    )
+    return ask_ai(prompt, model=_CURRENT_MODEL, max_retries=2)
+
+
+def architect_project(task_text):
+    """Проектирует архитектуру по описанию задачи."""
+    prompt = (
+        "Ты — senior Python-архитектор. Спроектируй архитектуру проекта по описанию." + chr(10) + chr(10) +
+        "Формат:" + chr(10) +
+        "🏗 Архитектура:" + chr(10) + chr(10) +
+        "📁 Структура файлов:" + chr(10) +
+        "- ... (какие модули, что в них)" + chr(10) + chr(10) +
+        "🔧 Стек:" + chr(10) +
+        "- ... (библиотеки с обоснованием)" + chr(10) + chr(10) +
+        "🔄 Поток данных:" + chr(10) +
+        "- ... (как данные движутся)" + chr(10) + chr(10) +
+        "⚠️ Возможные проблемы:" + chr(10) +
+        "- ... (что учесть)" + chr(10) + chr(10) +
+        "До 400 слов. Без воды." + chr(10) + chr(10) +
+        "Задача: " + task_text[:2000]
+    )
+    return ask_ai(prompt, model=_CURRENT_MODEL, max_retries=2)
+
+
+def refactor_code(code_text):
+    """Рефакторит код: стиль, дубликаты, читаемость."""
+    prompt = (
+        "Ты — senior Python-разработчик. Отрефакторь код." + chr(10) + chr(10) +
+        "Что делай:" + chr(10) +
+        "- Убери дубликаты" + chr(10) +
+        "- Улучши имена переменных и функций" + chr(10) +
+        "- Разбей большие функции" + chr(10) +
+        "- Добавь type hints" + chr(10) +
+        "- Соблюдай PEP 8" + chr(10) +
+        "- Не меняй логику работы" + chr(10) + chr(10) +
+        "Формат:" + chr(10) +
+        "🔧 Что улучшил (список)" + chr(10) + chr(10) +
+        "📝 Новый код:" + chr(10) +
+        "<полный отрефакторенный код>" + chr(10) + chr(10) +
+        "Код:" + chr(10) + code_text[:3000]
+    )
+    return ask_ai(prompt, model=_CURRENT_MODEL, max_retries=2)
+
+
 def run_code(code_text):
     namespace = {}
     try:

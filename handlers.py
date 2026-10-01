@@ -17,6 +17,8 @@ from ai import (
     ask_ai, run_code, auto_fix,
     generate_project, edit_project, generate_full_project,
     review_code, explain_code, fix_code,
+    generate_tests, architect_project, refactor_code,
+    set_model, get_current_model,
 )
 
 
@@ -101,6 +103,7 @@ def send_welcome(message):
 @bot.message_handler(commands=['help'])
 def send_help(message):
     """Показывает список команд."""
+    current_model = get_current_model()
     bot.reply_to(message,
         "📚 Команды разработчика:\n\n"
         "🔧 Генерация:\n"
@@ -111,23 +114,20 @@ def send_help(message):
         "/automate <ТЗ> — автоматизация\n"
         "/make_full <ТЗ> — ZIP с тестами\n\n"
         "🔍 Работа с кодом:\n"
-        "/review — код-ревью (пришли код)\n"
+        "/review — код-ревью\n"
         "/explain — объяснить код\n"
-        "/fix — починить по ошибке\n\n"
+        "/fix — починить по ошибке\n"
+        "/tests — сгенерировать тесты\n"
+        "/refactor — рефакторинг\n"
+        "/architect — спроектировать архитектуру\n\n"
+        "🧠 Модель:\n"
+        "/model — текущая модель\n"
+        "/model lite — быстро\n"
+        "/model pro — умнее\n\n"
         "🔨 Проекты:\n"
-        "/projects — список\n"
-        "/download <id> — скачать файл\n"
-        "/dl_full <id> — скачать ZIP\n"
-        "/edit <id> <правки> — доработать\n"
-        "/test <id> — sandbox-проверка\n"
-        "/deploy <id> — деплой на Render\n\n"
-        "📎 Файлы:\n"
-        "Отправь документ (PDF/TXT) — станет ТЗ\n"
-        "/myfile — последний файл\n"
-        "/clearfile — удалить\n\n"
-        "📊 Прочее:\n"
-        "/mystats — статистика\n"
-        "/help — эта справка"
+        "/projects, /download, /dl_full, /edit, /test, /deploy\n\n"
+        "📎 Файлы: PDF/TXT → ТЗ, /myfile, /clearfile\n\n"
+        f"Текущая модель: {current_model}"
     )
 
 def handle_stats(message):
@@ -753,6 +753,127 @@ def handle_fix(message):
             "ZeroDivisionError: division by zero"
         )
         bot.register_next_step_handler(message, lambda m: _process_code_input(m, "fix"))
+
+
+
+
+# ============================================================
+# ТЕСТЫ, АРХИТЕКТУРА, РЕФАКТОРИНГ, ВЫБОР МОДЕЛИ
+# ============================================================
+
+def _process_code_for(message, action):
+    """Обработчик кода для /tests и /refactor."""
+    code_text = message.text or ""
+    if len(code_text) < 15:
+        bot.reply_to(message, "Код слишком короткий.")
+        return
+
+    if action == "tests":
+        bot.reply_to(message, "🧪 Генерирую тесты... 15-30 сек.")
+        result = generate_tests(code_text)
+    elif action == "refactor":
+        bot.reply_to(message, "🔧 Рефакторю... 20-40 сек.")
+        result = refactor_code(code_text)
+    else:
+        result = None
+
+    if not result or "Ошибка ИИ" in result:
+        bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+        return
+    send_code(message, result)
+
+
+@bot.message_handler(commands=['tests'])
+def handle_tests(message):
+    """/tests — сгенерировать pytest-тесты к коду."""
+    code_text = message.text.replace("/tests", "", 1).strip()
+    if len(code_text) >= 15:
+        bot.reply_to(message, "🧪 Генерирую тесты... 15-30 сек.")
+        result = generate_tests(code_text)
+        if not result or "Ошибка ИИ" in result:
+            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+            return
+        send_code(message, result)
+    else:
+        bot.reply_to(message, "📝 Пришли код следующим сообщением.")
+        bot.register_next_step_handler(message, lambda m: _process_code_for(m, "tests"))
+
+
+@bot.message_handler(commands=['refactor'])
+def handle_refactor(message):
+    """/refactor — рефакторинг кода."""
+    code_text = message.text.replace("/refactor", "", 1).strip()
+    if len(code_text) >= 15:
+        bot.reply_to(message, "🔧 Рефакторю... 20-40 сек.")
+        result = refactor_code(code_text)
+        if not result or "Ошибка ИИ" in result:
+            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+            return
+        send_code(message, result)
+    else:
+        bot.reply_to(message, "📝 Пришли код следующим сообщением.")
+        bot.register_next_step_handler(message, lambda m: _process_code_for(m, "refactor"))
+
+
+def _process_architect(message):
+    """Обработчик описания для /architect."""
+    task_text = message.text or ""
+    if len(task_text) < 15:
+        bot.reply_to(message, "Опиши задачу подробнее.")
+        return
+    bot.reply_to(message, "🏗 Проектирую... 20-40 сек.")
+    result = architect_project(task_text)
+    if not result or "Ошибка ИИ" in result:
+        bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+        return
+    send_code(message, result)
+
+
+@bot.message_handler(commands=['architect'])
+def handle_architect(message):
+    """/architect — спроектировать архитектуру по описанию."""
+    task_text = message.text.replace("/architect", "", 1).strip()
+    if len(task_text) >= 15:
+        bot.reply_to(message, "🏗 Проектирую... 20-40 сек.")
+        result = architect_project(task_text)
+        if not result or "Ошибка ИИ" in result:
+            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+            return
+        send_code(message, result)
+    else:
+        bot.reply_to(message, "📝 Пришли описание задачи следующим сообщением.")
+        bot.register_next_step_handler(message, _process_architect)
+
+
+@bot.message_handler(commands=['model'])
+def handle_model(message):
+    """/model — переключить модель или показать текущую."""
+    arg = message.text.replace("/model", "", 1).strip().lower()
+
+    if not arg:
+        current = get_current_model()
+        bot.reply_to(message,
+            f"🧠 Текущая модель: <code>{current}</code>\n\n"
+            "Варианты:\n"
+            "/model lite — gemini-3.5-flash-lite (быстро)\n"
+            "/model pro — gemini-2.5-pro (умнее)\n"
+            "/model latest — gemini-flash-latest",
+            parse_mode="HTML"
+        )
+        return
+
+    mapping = {
+        "lite": "gemini-3.5-flash-lite",
+        "pro": "gemini-2.5-pro",
+        "latest": "gemini-flash-latest",
+    }
+
+    if arg not in mapping:
+        bot.reply_to(message, "Неизвестный вариант. Используй: lite / pro / latest")
+        return
+
+    new_model = set_model(mapping[arg])
+    bot.reply_to(message, f"✅ Модель переключена на <code>{new_model}</code>", parse_mode="HTML")
 
 
 # Ловушка для НЕИЗВЕСТНЫХ команд (всё, что начинается с /, но не сработало выше)
