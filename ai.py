@@ -447,6 +447,57 @@ def evaluate_job_complexity(title, description):
     return None
 
 
+def review_code(code_text):
+    """Код-ревью через Gemini: критика + улучшения + оценка."""
+    prompt = (
+        "Ты — senior Python-разработчик. Сделай код-ревью." + chr(10) + chr(10) +
+        "Формат ответа строго такой:" + chr(10) +
+        "🔍 Ревью кода:" + chr(10) + chr(10) +
+        "🚨 Критично (что сломает работу):" + chr(10) +
+        "- ..." + chr(10) + chr(10) +
+        "⚠️ Среднее (стиль, читаемость):" + chr(10) +
+        "- ..." + chr(10) + chr(10) +
+        "💡 Улучшения (что добавить):" + chr(10) +
+        "- ..." + chr(10) + chr(10) +
+        "⭐ Оценка: X/10 (коротко почему)" + chr(10) + chr(10) +
+        "Будь конкретным, не общими словами. До 300 слов." + chr(10) + chr(10) +
+        "Код:" + chr(10) + code_text[:3000]
+    )
+    return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+
+
+def explain_code(code_text):
+    """Объяснение кода простыми словами."""
+    prompt = (
+        "Ты — опытный Python-преподаватель. Объясни этот код простыми словами." + chr(10) + chr(10) +
+        "Структура:" + chr(10) +
+        "📌 Что делает код (1-2 строки)" + chr(10) + chr(10) +
+        "🔍 Разбор по шагам:" + chr(10) +
+        "- ..." + chr(10) + chr(10) +
+        "⚠️ Возможные проблемы / edge cases:" + chr(10) +
+        "- ..." + chr(10) + chr(10) +
+        "Без воды. До 300 слов." + chr(10) + chr(10) +
+        "Код:" + chr(10) + code_text[:3000]
+    )
+    return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+
+
+def fix_code(code_and_error):
+    """Починка кода по traceback."""
+    prompt = (
+        "Ты — senior Python-разработчик. Пользователь прислал код и ошибку." + chr(10) + chr(10) +
+        "Ответь строго так:" + chr(10) +
+        "🎯 Причина ошибки:" + chr(10) +
+        "- ... (1-3 строки)" + chr(10) + chr(10) +
+        "🔧 Исправленный код:" + chr(10) +
+        "<полный исправленный код>" + chr(10) + chr(10) +
+        "💡 Что было не так (1 строка)" + chr(10) + chr(10) +
+        "Вот что прислал пользователь:" + chr(10) + chr(10) +
+        code_and_error[:3000]
+    )
+    return ask_ai(prompt, model="gemini-3.5-flash-lite", max_retries=2)
+
+
 def run_code(code_text):
     namespace = {}
     try:

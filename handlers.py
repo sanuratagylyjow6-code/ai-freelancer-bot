@@ -16,6 +16,7 @@ from database import (
 from ai import (
     ask_ai, run_code, auto_fix,
     generate_project, edit_project, generate_full_project,
+    review_code, explain_code, fix_code,
 )
 
 
@@ -662,6 +663,95 @@ def handle_clearfile(message):
 # ============================================================
 # ЭХО (для не-командных сообщений)
 # ============================================================
+
+
+
+# ============================================================
+# КОД-РЕВЬЮ, ОБЪЯСНЕНИЕ, ПОЧИНКА
+# ============================================================
+
+def _process_code_input(message, action):
+    """Обработчик следующего сообщения — код для review/explain/fix."""
+    code_text = message.text or ""
+    if len(code_text) < 15:
+        bot.reply_to(message, "Код слишком короткий. Попробуй ещё раз.")
+        return
+
+    headers = {
+        "review": "🔍 Делаю ревью... 15-30 сек.",
+        "explain": "📖 Объясняю... 15-30 сек.",
+        "fix": "🔧 Разбираю ошибку... 15-30 сек.",
+    }
+    bot.reply_to(message, headers.get(action, "Обрабатываю..."))
+
+    if action == "review":
+        result = review_code(code_text)
+    elif action == "explain":
+        result = explain_code(code_text)
+    elif action == "fix":
+        result = fix_code(code_text)
+    else:
+        result = None
+
+    if not result or "Ошибка ИИ" in result or "Лимит ИИ" in result:
+        bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+        return
+
+    send_code(message, result)
+
+
+@bot.message_handler(commands=['review'])
+def handle_review(message):
+    """/review — код-ревью. Можно /review <код> или /review + следующее сообщение."""
+    code_text = message.text.replace("/review", "", 1).strip()
+    if len(code_text) >= 15:
+        bot.reply_to(message, "🔍 Делаю ревью... 15-30 сек.")
+        result = review_code(code_text)
+        if not result or "Ошибка ИИ" in result:
+            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+            return
+        send_code(message, result)
+    else:
+        bot.reply_to(message, "📝 Пришли код следующим сообщением.")
+        bot.register_next_step_handler(message, lambda m: _process_code_input(m, "review"))
+
+
+@bot.message_handler(commands=['explain'])
+def handle_explain(message):
+    """/explain — объяснение кода."""
+    code_text = message.text.replace("/explain", "", 1).strip()
+    if len(code_text) >= 15:
+        bot.reply_to(message, "📖 Объясняю... 15-30 сек.")
+        result = explain_code(code_text)
+        if not result or "Ошибка ИИ" in result:
+            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+            return
+        send_code(message, result)
+    else:
+        bot.reply_to(message, "📝 Пришли код следующим сообщением.")
+        bot.register_next_step_handler(message, lambda m: _process_code_input(m, "explain"))
+
+
+@bot.message_handler(commands=['fix'])
+def handle_fix(message):
+    """/fix — починить код. Пришли код + traceback одним сообщением."""
+    text = message.text.replace("/fix", "", 1).strip()
+    if len(text) >= 15:
+        bot.reply_to(message, "🔧 Разбираю ошибку... 15-30 сек.")
+        result = fix_code(text)
+        if not result or "Ошибка ИИ" in result:
+            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+            return
+        send_code(message, result)
+    else:
+        bot.reply_to(message,
+            "📝 Пришли код И ошибку одним сообщением. Пример:" + chr(10) + chr(10) +
+            "def f():" + chr(10) +
+            "    return 1/0" + chr(10) + chr(10) +
+            "ZeroDivisionError: division by zero"
+        )
+        bot.register_next_step_handler(message, lambda m: _process_code_input(m, "fix"))
+
 
 # Ловушка для НЕИЗВЕСТНЫХ команд (всё, что начинается с /, но не сработало выше)
 @bot.message_handler(func=lambda m: m.text and m.text.startswith('/'))
