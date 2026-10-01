@@ -110,9 +110,13 @@ def send_help(message):
         "/make_parser <ТЗ> — парсер\n"
         "/automate <ТЗ> — автоматизация\n"
         "/make_full <ТЗ> — ZIP с тестами\n\n"
-        "🔨 Работа с проектами:\n"
+        "🔍 Работа с кодом:\n"
+        "/review — код-ревью (пришли код)\n"
+        "/explain — объяснить код\n"
+        "/fix — починить по ошибке\n\n"
+        "🔨 Проекты:\n"
         "/projects — список\n"
-        "/download <id> — скачать\n"
+        "/download <id> — скачать файл\n"
         "/dl_full <id> — скачать ZIP\n"
         "/edit <id> <правки> — доработать\n"
         "/test <id> — sandbox-проверка\n"
@@ -120,14 +124,12 @@ def send_help(message):
         "📎 Файлы:\n"
         "Отправь документ (PDF/TXT) — станет ТЗ\n"
         "/myfile — последний файл\n"
-        "/clearfile — удалить файл\n\n"
+        "/clearfile — удалить\n\n"
         "📊 Прочее:\n"
-        "/mystats — своя статистика\n"
-        "/clients — все юзеры (только для владельца)"
+        "/mystats — статистика\n"
+        "/help — эта справка"
     )
 
-
-@bot.message_handler(commands=['mystats'])
 def handle_stats(message):
     """Показывает статистику юзера."""
     user_id = message.from_user.id
