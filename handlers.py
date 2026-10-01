@@ -663,6 +663,28 @@ def handle_clearfile(message):
 # ЭХО (для не-командных сообщений)
 # ============================================================
 
+# Ловушка для НЕИЗВЕСТНЫХ команд (всё, что начинается с /, но не сработало выше)
+@bot.message_handler(func=lambda m: m.text and m.text.startswith('/'))
+def unknown_command(message):
+    """Отвечает на неизвестные команды подсказкой."""
+    cmd = message.text.split()[0]
+    bot.reply_to(message,
+        f"❓ Команда {cmd} не найдена.\n\n"
+        "Доступные команды:\n"
+        "/code — сгенерировать код\n"
+        "/run — сгенерировать + выполнить\n"
+        "/make_bot — Telegram-бот\n"
+        "/make_parser — парсер\n"
+        "/make_full — ZIP-проект\n"
+        "/edit — доработать проект\n"
+        "/projects — список проектов\n"
+        "/test — проверить в sandbox\n"
+        "/deploy — деплой на Render\n"
+        "/help — полный список"
+    )
+
+
+# Ловушка для обычных сообщений (не команды)
 @bot.message_handler(func=lambda m: not m.text.startswith('/'))
 def echo_all(message):
     """Подсказывает команды при обычных сообщениях."""
