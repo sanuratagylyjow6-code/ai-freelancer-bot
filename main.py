@@ -1,4 +1,4 @@
-"""Точка входа: Flask-сервер для webhook + cron."""
+"""Точка входа: Flask-сервер, принимающий webhook от Telegram."""
 
 import os
 import sys
@@ -13,20 +13,15 @@ import database
 import handlers
 from core import bot
 
-# Отключаем многопоточность telebot — обработчики выполняются синхронно
 bot.threaded = False
-
-# Логирование telebot в stdout (чтобы ошибки были видны в Render Logs)
 logging.basicConfig(level=logging.INFO, stream=sys.stdout)
 
 
 app = Flask(__name__)
 database.init_db()
-database.init_jobs_table()
-database.init_filters_table()
-database.init_sent_table()
 database.init_projects_table()
 database.init_full_projects_table()
+
 
 SECRET = os.environ.get("WEBHOOK_SECRET", "change_me_secret")
 WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
@@ -35,7 +30,7 @@ WEBHOOK_URL = os.environ.get("WEBHOOK_URL", "")
 @app.route("/", methods=["GET"])
 def healthcheck():
     """Healthcheck для UptimeRobot и Render."""
-    return "AI Freelancer Bot is alive", 200
+    return "AI Python Developer Bot is alive", 200
 
 
 @app.route(f"/webhook/{SECRET}", methods=["POST"])
@@ -44,13 +39,8 @@ def receive_webhook():
     try:
         if request.headers.get("content-type", "").startswith("application/json"):
             json_data = request.get_data().decode("utf-8")
-            print(f"\U0001F4E9 Апдейт получен ({len(json_data)} байт)", flush=True)
             update = telebot.types.Update.de_json(json_data)
-            print(f"\U0001F50D update_id={update.update_id}", flush=True)
-            if update.message:
-                print(f"\U0001F4AC Текст: {update.message.text}", flush=True)
             bot.process_new_updates([update])
-            print(f"\u2705 Апдейт обработан", flush=True)
             return "", 200
         return "Invalid content type", 403
     except Exception as e:
@@ -58,61 +48,16 @@ def receive_webhook():
         return "", 500
 
 
-_cron_lock = threading.Lock()
-
-
-@app.route("/cron", methods=["GET", "POST"])
-def cron_task():
-    """Запускает рассылку в фоне, но только если другой процесс не идёт."""
-    def background_job():
-        acquired = _cron_lock.acquire(blocking=False)
-        if not acquired:
-            print("⏭ Cron уже выполняется, пропускаю", flush=True)
-            return
-        try:
-            import jobs as jobs_module
-            print("\u23F0 Cron: фоновая задача запущена", flush=True)
-            stats = jobs_module.broadcast_to_all_users()
-            print(f"\u2705 Cron завершён: {stats}", flush=True)
-
-            # Проверка на утреннюю сводку (дешёвая операция)
-            try:
-                summary_stats = jobs_module.maybe_send_daily_summaries()
-                print(f"\U0001F305 Сводка: {summary_stats}", flush=True)
-            except Exception as se:
-                print(f"\u26A0 Ошибка сводки: {se}", flush=True)
-
-            # Follow-up напоминания (раз в день)
-            try:
-                followup_stats = jobs_module.send_followup_reminders()
-                print(f"\u23F0 Follow-up: {followup_stats}", flush=True)
-            except Exception as fe:
-                print(f"\u26A0 Ошибка follow-up: {fe}", flush=True)
-        except Exception:
-            print(f"\U0001F525 Cron упал:\n{traceback.format_exc()}", flush=True)
-        finally:
-            _cron_lock.release()
-
-    thread = threading.Thread(target=background_job, daemon=True)
-    thread.start()
-    return {"status": "started", "message": "Работа идёт в фоне"}, 200
-
-
-
 @app.route("/dashboard", methods=["GET"])
 def dashboard_page():
-    """HTML-страница со статистикой бота."""
+    """HTML-страница со статистикой проектов."""
     try:
         from dashboard import render_dashboard
         stats = database.get_dashboard_stats()
         stats["_chart_data"] = database.get_chart_data()
         return render_dashboard(stats), 200
     except Exception as e:
-        import traceback
-        return (
-            "<h1>Ошибка дашборда</h1>"
-            "<pre>" + str(traceback.format_exc()) + "</pre>"
-        ), 500
+        return f"<h1>Ошибка дашборда</h1><pre>{traceback.format_exc()}</pre>", 500
 
 
 if WEBHOOK_URL:

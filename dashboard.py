@@ -34,12 +34,12 @@ def _render_charts(chart_data):
 
     html = (
         "<div class='section'>"
-        "<h2>📈 Вакансии за 7 дней</h2>"
+        "<h2>📈 Активность (устарело)</h2>"
         "<canvas id='dailyChart' height='120'></canvas>"
         "</div>"
 
         "<div class='section'>"
-        "<h2>📡 Вакансии по каналам</h2>"
+        "<h2>📡 (скрыто)</h2>"
         "<canvas id='channelChart' height='160'></canvas>"
         "</div>"
 
