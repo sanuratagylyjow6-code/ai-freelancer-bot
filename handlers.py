@@ -13,6 +13,7 @@ from database import (
     save_task, update_task, get_user_tasks,
     save_user_file, get_latest_user_file, clear_user_files,
 )
+from rag import find_similar_projects, save_embedding, backfill_embeddings
 from ai import (
     ask_ai, run_code, auto_fix,
     generate_project, edit_project, generate_full_project,
@@ -106,26 +107,11 @@ def send_help(message):
     current_model = get_current_model()
     bot.reply_to(message,
         "📚 Команды разработчика:\n\n"
-        "🔧 Генерация:\n"
-        "/code <ТЗ> — функция/скрипт\n"
-        "/run <ТЗ> — сгенерировать + выполнить\n"
-        "/make_bot <ТЗ> — Telegram-бот\n"
-        "/make_parser <ТЗ> — парсер\n"
-        "/automate <ТЗ> — автоматизация\n"
-        "/make_full <ТЗ> — ZIP с тестами\n\n"
-        "🔍 Работа с кодом:\n"
-        "/review — код-ревью\n"
-        "/explain — объяснить код\n"
-        "/fix — починить по ошибке\n"
-        "/tests — сгенерировать тесты\n"
-        "/refactor — рефакторинг\n"
-        "/architect — спроектировать архитектуру\n\n"
-        "🧠 Модель:\n"
-        "/model — текущая модель\n"
-        "/model lite — быстро\n"
-        "/model pro — умнее\n\n"
-        "🔨 Проекты:\n"
-        "/projects, /download, /dl_full, /edit, /test, /deploy\n\n"
+        "🔧 Генерация: /code, /run, /make_bot, /make_parser, /automate, /make_full\n\n"
+        "🔍 Работа с кодом: /review, /explain, /fix, /tests, /refactor, /architect\n\n"
+        "🧠 Память: /find_project <запрос>, /similar <id>, /reindex\n\n"
+        "🧠 Модель: /model [lite|pro|latest]\n\n"
+        "🔨 Проекты: /projects, /download, /dl_full, /edit, /test, /deploy\n\n"
         "📎 Файлы: PDF/TXT → ТЗ, /myfile, /clearfile\n\n"
         f"Текущая модель: {current_model}"
     )
@@ -275,6 +261,13 @@ def _handle_make(message, project_type):
         user_id = message.from_user.id
         pid = save_project(user_id, project_type, tz, code)
 
+        # Автоматически считаем embedding для RAG-поиска
+        try:
+            from rag import save_embedding
+            save_embedding(pid, project_type, tz + chr(10) + code[:1000])
+        except Exception as ee:
+            print("embed error: " + str(ee)[:150], flush=True)
+
         file_name = TYPE_FILES[project_type]
         file_bytes = io.BytesIO(code.encode("utf-8"))
         file_bytes.name = file_name
@@ -325,6 +318,14 @@ def handle_make_full(message):
 
         user_id = message.from_user.id
         pid = save_full_project(user_id, tz, files)
+
+        # Автоматически считаем embedding для RAG-поиска
+        try:
+            from rag import save_embedding
+            code_all = chr(10).join(files.values())[:1000]
+            save_embedding(pid, ptype, tz + chr(10) + code_all)
+        except Exception as ee:
+            print("embed error: " + str(ee)[:150], flush=True)
 
         # Sandbox-проверка
         main_file = None
@@ -874,6 +875,82 @@ def handle_model(message):
 
     new_model = set_model(mapping[arg])
     bot.reply_to(message, f"✅ Модель переключена на <code>{new_model}</code>", parse_mode="HTML")
+
+
+
+
+# ============================================================
+# RAG-ПАМЯТЬ ПО ПРОЕКТАМ
+# ============================================================
+
+@bot.message_handler(commands=['find_project'])
+def handle_find_project(message):
+    """/find_project <запрос> — найти похожие проекты по смыслу."""
+    query = message.text.replace("/find_project", "", 1).strip()
+    if len(query) < 3:
+        bot.reply_to(message, "Формат: /find_project авторизация через токен")
+        return
+
+    bot.reply_to(message, "🔎 Ищу похожие проекты... 10-20 сек.")
+    results = find_similar_projects(query, top_k=5, min_score=0.5)
+
+    if not results:
+        bot.reply_to(message, "Ничего похожего не нашлось.")
+        return
+
+    lines = ["🔎 Похожие проекты (по смыслу):" + chr(10)]
+    for pid, ptype, score, preview in results:
+        lines.append(f"#{pid} [{TYPE_NAMES.get(ptype, ptype)}] — релевантность {int(score*100)}%")
+        lines.append(f"   {preview}...")
+        lines.append(f"   Скачать: /download {pid}")
+        lines.append("")
+    bot.reply_to(message, chr(10).join(lines))
+
+
+@bot.message_handler(commands=['similar'])
+def handle_similar(message):
+    """/similar <id> — найти похожие проекты."""
+    try:
+        pid = int(message.text.replace("/similar", "", 1).strip())
+    except ValueError:
+        bot.reply_to(message, "Формат: /similar 5")
+        return
+
+    user_id = message.from_user.id
+    row = get_project(pid, user_id)
+    if not row:
+        bot.reply_to(message, f"Проект #{pid} не найден.")
+        return
+
+    ptype, tz, code = row
+    bot.reply_to(message, "🔎 Ищу похожие... 10-20 сек.")
+    results = find_similar_projects(tz + chr(10) + code[:800], top_k=5, min_score=0.5)
+
+    # Убираем сам проект
+    results = [r for r in results if r[0] != pid]
+
+    if not results:
+        bot.reply_to(message, "Похожих не нашлось.")
+        return
+
+    lines = [f"🔎 Похожие на #{pid}:" + chr(10)]
+    for rpid, rptype, score, preview in results:
+        lines.append(f"#{rpid} [{TYPE_NAMES.get(rptype, rptype)}] — {int(score*100)}%")
+        lines.append(f"   {preview}...")
+        lines.append("")
+    bot.reply_to(message, chr(10).join(lines))
+
+
+@bot.message_handler(commands=['reindex'])
+def handle_reindex(message):
+    """/reindex — пересчитать embeddings для всех проектов."""
+    bot.reply_to(message, "⚙️ Индексирую проекты... 30-60 сек.")
+    try:
+        done = backfill_embeddings()
+        bot.reply_to(message, f"✅ Проиндексировано проектов: {done}")
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, f"⚠ Ошибка: {traceback.format_exc()[-300:]}")
 
 
 # Ловушка для НЕИЗВЕСТНЫХ команд (всё, что начинается с /, но не сработало выше)
