@@ -7,3 +7,4 @@ gunicorn
 psycopg2-binary
 
 pypdf==4.3.1
+pytest
