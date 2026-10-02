@@ -15,6 +15,7 @@ from database import (
 )
 from frontend import generate_single_page, generate_full_landing
 from selenium_gen import generate_js_parser
+from integrations import generate_integration, SERVICES
 from rag import find_similar_projects, save_embedding, backfill_embeddings
 from ai import (
     ask_ai, run_code, auto_fix,
@@ -111,7 +112,9 @@ def send_help(message):
         "📚 Команды разработчика:\n\n"
         "🐍 Python: /code, /run, /make_bot, /make_parser, /automate, /make_full\n\n"
         "🌐 Frontend: /make_site, /make_landing\n\n"
-        "🕷 JS-парсеры: /make_js_parser (запуск локально)\n\n"
+        "🕷 JS-парсеры: /make_js_parser\n\n"
+        "🔌 Интеграции: /integrate <сервис> <ТЗ>\n"
+        "   Сервисы: stars, yookassa, stripe, amocrm, gsheets, openai\n\n"
         "🔍 Работа с кодом: /review, /explain, /fix, /tests, /refactor, /architect\n\n"
         "🧠 Память: /find_project, /similar, /reindex\n\n"
         "🧠 Модель: /model [lite|pro|latest]\n\n"
@@ -993,6 +996,81 @@ def handle_tests(message):
     else:
         bot.reply_to(message, "📝 Пришли код следующим сообщением.")
         bot.register_next_step_handler(message, lambda m: _process_code_for(m, "tests"))
+
+
+
+# ============================================================
+# ИНТЕГРАЦИИ С СЕРВИСАМИ
+# ============================================================
+
+@bot.message_handler(commands=['integrate'])
+def handle_integrate(message):
+    """/integrate <сервис> <ТЗ> — модуль интеграции с внешним сервисом."""
+    text = message.text.replace("/integrate", "", 1).strip()
+
+    if not text:
+        # Показываем список сервисов
+        lines = ["🔌 Доступные интеграции:\n"]
+        for key, info in SERVICES.items():
+            lines.append(f"/integrate {key} <ТЗ>")
+            lines.append(f"   {info['name']} — {info['description']}")
+            lines.append("")
+        lines.append("Пример: /integrate stars бот для продажи курса, цена 100 Stars")
+        bot.reply_to(message, chr(10).join(lines))
+        return
+
+    parts = text.split(maxsplit=1)
+    service_key = parts[0].lower()
+
+    if service_key not in SERVICES:
+        bot.reply_to(message,
+            f"❓ Неизвестный сервис: {service_key}\n\n"
+            f"Доступные: {', '.join(SERVICES.keys())}"
+        )
+        return
+
+    if len(parts) < 2 or len(parts[1]) < 10:
+        bot.reply_to(message,
+            f"Опиши что нужно. Пример:" + chr(10) +
+            f"/integrate {service_key} бот для продажи доступа"
+        )
+        return
+
+    tz = parts[1]
+    info = SERVICES[service_key]
+    bot.reply_to(message, f"🔌 Генерирую интеграцию с {info['name']}... 30-90 сек.")
+
+    try:
+        files = generate_integration(service_key, tz)
+        if not files:
+            bot.reply_to(message, "⚠ Не удалось сгенерировать.")
+            return
+
+        user_id = message.from_user.id
+        pid = save_full_project(user_id, tz, files)
+
+        try:
+            from rag import save_embedding
+            code_all = chr(10).join(files.values())[:1000]
+            save_embedding(pid, "integration_" + service_key, tz + chr(10) + code_all)
+        except Exception:
+            pass
+
+        file_list = "\n".join(["  • " + n for n in sorted(files.keys())])
+        zip_buf = _make_zip(files)
+        bot.send_document(
+            message.chat.id,
+            zip_buf,
+            visible_file_name=f"{service_key}_{pid}.zip",
+            caption=(f"✅ Интеграция с {info['name']} готова!\n🆔 Проект #{pid}\n\n"
+                     f"📁 Файлы:\n{file_list}\n\n"
+                     f"📖 Документация: {info['docs']}\n\n"
+                     f"Скачать: /dl_full {pid}")
+        )
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, f"🔥 Ошибка: {traceback.format_exc()[-300:]}")
+
 
 # Ловушка для НЕИЗВЕСТНЫХ команд (всё, что начинается с /, но не сработало выше)
 @bot.message_handler(func=lambda m: m.text and m.text.startswith('/'))
