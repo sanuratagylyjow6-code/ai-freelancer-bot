@@ -13,6 +13,7 @@ from database import (
     save_task, update_task, get_user_tasks,
     save_user_file, get_latest_user_file, clear_user_files,
 )
+from frontend import generate_single_page, generate_full_landing
 from rag import find_similar_projects, save_embedding, backfill_embeddings
 from ai import (
     ask_ai, run_code, auto_fix,
@@ -107,9 +108,15 @@ def send_help(message):
     current_model = get_current_model()
     bot.reply_to(message,
         "📚 Команды разработчика:\n\n"
-        "🔧 Генерация: /code, /run, /make_bot, /make_parser, /automate, /make_full\n\n"
+        "🐍 Python:\n"
+        "/code <ТЗ>, /run <ТЗ>\n"
+        "/make_bot <ТЗ>, /make_parser <ТЗ>, /automate <ТЗ>\n"
+        "/make_full <ТЗ> — ZIP с тестами\n\n"
+        "🌐 Frontend:\n"
+        "/make_site <ТЗ> — одностраничник (1 HTML)\n"
+        "/make_landing <ТЗ> — лендинг (HTML+CSS+JS)\n\n"
         "🔍 Работа с кодом: /review, /explain, /fix, /tests, /refactor, /architect\n\n"
-        "🧠 Память: /find_project <запрос>, /similar <id>, /reindex\n\n"
+        "🧠 Память: /find_project, /similar, /reindex\n\n"
         "🧠 Модель: /model [lite|pro|latest]\n\n"
         "🔨 Проекты: /projects, /download, /dl_full, /edit, /test, /deploy\n\n"
         "📎 Файлы: PDF/TXT → ТЗ, /myfile, /clearfile\n\n"
@@ -951,6 +958,94 @@ def handle_reindex(message):
     except Exception as e:
         import traceback
         bot.reply_to(message, f"⚠ Ошибка: {traceback.format_exc()[-300:]}")
+
+
+
+
+# ============================================================
+# FRONTEND — лендинги и одностраничники
+# ============================================================
+
+@bot.message_handler(commands=['make_site'])
+def handle_make_site(message):
+    """/make_site <ТЗ> — одностраничник (один HTML)."""
+    tz = message.text.replace("/make_site", "", 1).strip()
+    if len(tz) < 10:
+        bot.reply_to(message, "Опиши сайт. Пример: /make_site лендинг для кофейни")
+        return
+
+    bot.reply_to(message, "🌐 Генерирую сайт... 20-60 сек.")
+
+    try:
+        html = generate_single_page(tz)
+        if not html:
+            bot.reply_to(message, "⚠ Не удалось сгенерировать.")
+            return
+
+        user_id = message.from_user.id
+        files = {"index.html": html}
+        pid = save_full_project(user_id, tz, files)
+
+        # Автоиндексация для RAG
+        try:
+            from rag import save_embedding
+            save_embedding(pid, "frontend", tz + chr(10) + html[:1000])
+        except Exception:
+            pass
+
+        file_bytes = io.BytesIO(html.encode("utf-8"))
+        file_bytes.name = "index.html"
+        bot.send_document(
+            message.chat.id,
+            file_bytes,
+            visible_file_name="index.html",
+            caption=f"✅ Сайт готов!\n🆔 Проект #{pid}\n\nСкачать: /dl_full {pid}"
+        )
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, f"🔥 Ошибка: {traceback.format_exc()[-300:]}")
+
+
+@bot.message_handler(commands=['make_landing'])
+def handle_make_landing(message):
+    """/make_landing <ТЗ> — многофайловый лендинг (HTML + CSS + JS)."""
+    tz = message.text.replace("/make_landing", "", 1).strip()
+    if len(tz) < 10:
+        bot.reply_to(message, "Опиши лендинг. Пример: /make_landing сайт для онлайн-курса")
+        return
+
+    bot.reply_to(message, "🌐 Генерирую лендинг... 30-90 сек.")
+
+    try:
+        files = generate_full_landing(tz)
+        if not files:
+            bot.reply_to(message, "⚠ Не удалось сгенерировать.")
+            return
+
+        user_id = message.from_user.id
+        pid = save_full_project(user_id, tz, files)
+
+        # Автоиндексация
+        try:
+            from rag import save_embedding
+            code_all = chr(10).join(files.values())[:1000]
+            save_embedding(pid, "frontend", tz + chr(10) + code_all)
+        except Exception:
+            pass
+
+        file_list = "\n".join(["  • " + n for n in sorted(files.keys())])
+        zip_buf = _make_zip(files)
+        bot.send_document(
+            message.chat.id,
+            zip_buf,
+            visible_file_name=f"landing_{pid}.zip",
+            caption=(f"✅ Лендинг готов!\n🆔 Проект #{pid}\n\n"
+                     f"📁 Файлы:\n{file_list}\n\n"
+                     f"Скачать: /dl_full {pid}")
+        )
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, f"🔥 Ошибка: {traceback.format_exc()[-300:]}")
 
 
 # Ловушка для НЕИЗВЕСТНЫХ команд (всё, что начинается с /, но не сработало выше)
