@@ -179,12 +179,15 @@ def run_pytest(files_dict, timeout=30):
 
         passed = result.returncode == 0
         stdout = (result.stdout or "")[:3000]
-        stderr = (result.stderr or "")[:1000]
+        stderr = (result.stderr or "")[:2000]
+
+        # Объединённый вывод — pytest может писать и туда, и сюда
+        full_output = stdout + chr(10) + stderr
 
         # Ищем сводку вида "5 passed" / "3 failed, 2 passed"
         import re
         summary = ""
-        m = re.search(r"(\d+\s+(?:passed|failed|error)[^\n]*)", stdout)
+        m = re.search(r"(\d+\s+(?:passed|failed|error)[^\n]*)", full_output)
         if m:
             summary = m.group(1)[:120]
 
@@ -192,6 +195,7 @@ def run_pytest(files_dict, timeout=30):
             "ok": passed,
             "stdout": stdout,
             "stderr": stderr,
+            "full_output": full_output[:4000],
             "summary": summary,
             "returncode": result.returncode
         }

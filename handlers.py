@@ -651,11 +651,13 @@ def _process_code_for(message, action):
             bot.reply_to(message, "⚠ Не получилось: " + str(tests_code)[:200])
             return
 
-        # Пробуем запустить — но сначала нужно понять имя модуля
-        # Gemini пишет "from X import Y". Извлекаем X.
+        # Определяем имя модуля — Gemini пишет "from X import Y"
         import re as _re
         module_name = None
-        m = _re.search(r"from (\w+) import", tests_code)
+        # Ловим и "from x import", и "from x.y import", и "import x"
+        m = _re.search(r"^from\s+(\w+)", tests_code, _re.MULTILINE)
+        if not m:
+            m = _re.search(r"^import\s+(\w+)", tests_code, _re.MULTILINE)
         if m:
             module_name = m.group(1)
 
@@ -674,10 +676,14 @@ def _process_code_for(message, action):
                     f"📊 {result['summary'] or 'все тесты успешны'}"
                 )
             else:
-                bot.reply_to(message,
+                # Берём объединённый вывод — ошибка может быть в stderr
+                full = result.get("full_output") or result.get("stdout", "") or result.get("stderr", "")
+                # Обрезаем до 1500 символов, отсекаем мусор сверху
+                tail = full[-1500:] if len(full) > 1500 else full
+                send_code(message,
                     f"❌ Тесты упали.\n"
                     f"📊 {result['summary'] or 'см. вывод ниже'}\n\n"
-                    f"Подробнее:\n{result['stdout'][-1000:]}"
+                    f"Подробности:\n{tail}"
                 )
         else:
             bot.reply_to(message,
