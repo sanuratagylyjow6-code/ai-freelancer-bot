@@ -14,6 +14,7 @@ from database import (
     save_user_file, get_latest_user_file, clear_user_files,
 )
 from frontend import generate_single_page, generate_full_landing
+from selenium_gen import generate_js_parser
 from rag import find_similar_projects, save_embedding, backfill_embeddings
 from ai import (
     ask_ai, run_code, auto_fix,
@@ -108,13 +109,9 @@ def send_help(message):
     current_model = get_current_model()
     bot.reply_to(message,
         "📚 Команды разработчика:\n\n"
-        "🐍 Python:\n"
-        "/code <ТЗ>, /run <ТЗ>\n"
-        "/make_bot <ТЗ>, /make_parser <ТЗ>, /automate <ТЗ>\n"
-        "/make_full <ТЗ> — ZIP с тестами\n\n"
-        "🌐 Frontend:\n"
-        "/make_site <ТЗ> — одностраничник (1 HTML)\n"
-        "/make_landing <ТЗ> — лендинг (HTML+CSS+JS)\n\n"
+        "🐍 Python: /code, /run, /make_bot, /make_parser, /automate, /make_full\n\n"
+        "🌐 Frontend: /make_site, /make_landing\n\n"
+        "🕷 JS-парсеры: /make_js_parser (запуск локально)\n\n"
         "🔍 Работа с кодом: /review, /explain, /fix, /tests, /refactor, /architect\n\n"
         "🧠 Память: /find_project, /similar, /reindex\n\n"
         "🧠 Модель: /model [lite|pro|latest]\n\n"
@@ -1041,6 +1038,60 @@ def handle_make_landing(message):
             visible_file_name=f"landing_{pid}.zip",
             caption=(f"✅ Лендинг готов!\n🆔 Проект #{pid}\n\n"
                      f"📁 Файлы:\n{file_list}\n\n"
+                     f"Скачать: /dl_full {pid}")
+        )
+    except Exception as e:
+        import traceback
+        bot.reply_to(message, f"🔥 Ошибка: {traceback.format_exc()[-300:]}")
+
+
+
+
+# ============================================================
+# SELENIUM — парсеры JS-сайтов
+# ============================================================
+
+@bot.message_handler(commands=['make_js_parser'])
+def handle_make_js_parser(message):
+    """/make_js_parser <ТЗ> — парсер для JS-сайта (Selenium)."""
+    tz = message.text.replace("/make_js_parser", "", 1).strip()
+    if len(tz) < 15:
+        bot.reply_to(message,
+            "Опиши что парсить. Пример:" + chr(10) +
+            "/make_js_parser спарси названия и цены с сайта book24.ru, категория Python"
+        )
+        return
+
+    bot.reply_to(message, "🌐 Генерирую Selenium-парсер... 30-90 сек.")
+
+    try:
+        files = generate_js_parser(tz)
+        if not files:
+            bot.reply_to(message, "⚠ Не удалось сгенерировать.")
+            return
+
+        user_id = message.from_user.id
+        pid = save_full_project(user_id, tz, files)
+
+        try:
+            from rag import save_embedding
+            code_all = chr(10).join(files.values())[:1000]
+            save_embedding(pid, "selenium", tz + chr(10) + code_all)
+        except Exception:
+            pass
+
+        file_list = "\n".join(["  • " + n for n in sorted(files.keys())])
+        zip_buf = _make_zip(files)
+        bot.send_document(
+            message.chat.id,
+            zip_buf,
+            visible_file_name=f"js_parser_{pid}.zip",
+            caption=(f"✅ Selenium-парсер готов!\n🆔 Проект #{pid}\n\n"
+                     f"📁 Файлы:\n{file_list}\n\n"
+                     f"⚠ Запускается ЛОКАЛЬНО (не на Render):\n"
+                     f"1. Распакуй ZIP\n"
+                     f"2. pip install -r requirements.txt\n"
+                     f"3. python parser.py\n\n"
                      f"Скачать: /dl_full {pid}")
         )
     except Exception as e:
