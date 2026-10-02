@@ -497,7 +497,7 @@ def handle_dl_full(message):
 
 @bot.message_handler(commands=['test'])
 def handle_test_code(message):
-    """Тестирует проект в sandbox."""
+    """Тестирует проект в sandbox (по возможности — pytest)."""
     try:
         pid = int(message.text.replace("/test", "", 1).strip())
     except ValueError:
@@ -510,172 +510,43 @@ def handle_test_code(message):
         bot.reply_to(message, f"Проект #{pid} не найден среди многофайловых.")
         return
 
-    main_file = None
-    for name in ["bot.py", "main.py"]:
-        if name in files:
-            main_file = name
-            break
-    if not main_file:
-        bot.reply_to(message, "В проекте нет bot.py или main.py.")
-        return
+    # Ищем тестовые файлы
+    test_files = [n for n in files.keys() if n.startswith("test_") and n.endswith(".py")]
 
-    bot.reply_to(message, "Запускаю sandbox-тест...")
-    from sandbox import test_project_safe
-    result = test_project_safe(files, main_file, timeout=15)
+    bot.reply_to(message, "🧪 Запускаю тесты...")
 
-    if result["ok"]:
-        out = result["stdout"].strip()[:500] or "(нет вывода)"
-        bot.reply_to(message, f"✅ Тест #{pid} пройден\n\nФайл: {main_file}\n\nВывод:\n{out}")
-    else:
-        err = result.get("error") or result.get("stderr", "")[:500]
-        bot.reply_to(message, f"❌ Тест #{pid} провален\n\nОшибка:\n{err}")
-
-
-@bot.message_handler(commands=['deploy'])
-def handle_deploy(message):
-    """Деплоит проект на GitHub + даёт ссылку на Render."""
-    try:
-        text = message.text.replace("/deploy", "", 1).strip()
-        if not text:
-            bot.reply_to(message, "Формат: /deploy <id>. Пример: /deploy 5")
-            return
-        try:
-            pid = int(text.split()[0])
-        except ValueError:
-            bot.reply_to(message, "Укажи ID. Пример: /deploy 5")
-            return
-
-        user_id = message.from_user.id
-        files = get_full_project(pid, user_id)
-        if not files:
-            bot.reply_to(message, f"Проект #{pid} не найден среди многофайловых.")
-            return
-
-        bot.reply_to(message, "🚀 Деплою на GitHub... 10-30 сек.")
-        from deployer import deploy_project
-        import time
-
-        rows = get_user_full_projects(user_id, limit=20)
-        tz = "проект"
-        for fid, ftz, _ in rows:
-            if fid == pid:
-                tz = ftz
-                break
-
-        ptype = "bot"
-        if any("bot.py" in k for k in files.keys()):
-            ptype = "bot"
-        elif any("parser.py" in k for k in files.keys()):
-            ptype = "parser"
+    if test_files:
+        from sandbox import run_pytest
+        result = run_pytest(files, timeout=30)
+        if result["ok"]:
+            bot.reply_to(message,
+                f"✅ Тесты #{pid} пройдены!\n📊 {result['summary'] or 'все ок'}"
+            )
         else:
-            ptype = "automate"
-
-        repo_name = "aipython-" + ptype + "-" + str(pid) + "-" + str(int(time.time()))
-        result = deploy_project(repo_name, files, tz, ptype)
-
-        if not result["ok"]:
-            bot.reply_to(message, f"❌ Ошибка деплоя: {result['error']}")
+            bot.reply_to(message,
+                f"❌ Тесты #{pid} упали.\n"
+                f"📊 {result['summary'] or 'см. ниже'}\n\n"
+                f"{result['stdout'][-800:]}"
+            )
+    else:
+        # Нет тестов — обычный smoke-тест
+        main_file = None
+        for name in ["bot.py", "main.py"]:
+            if name in files:
+                main_file = name
+                break
+        if not main_file:
+            bot.reply_to(message, "Нет ни test_*.py, ни bot.py/main.py — нечего тестировать.")
             return
+        from sandbox import test_project_safe
+        result = test_project_safe(files, main_file, timeout=15)
+        if result["ok"]:
+            out = result["stdout"].strip()[:500] or "(нет вывода)"
+            bot.reply_to(message, f"✅ Smoke-тест #{pid} пройден\n\nФайл: {main_file}\n\n{out}")
+        else:
+            err = result.get("error") or result.get("stderr", "")[:500]
+            bot.reply_to(message, f"❌ Тест #{pid} провален\n\nОшибка:\n{err}")
 
-        lines = [
-            "✅ Проект загружен на GitHub!",
-            "",
-            "📦 Репозиторий:",
-            result["repo_url"],
-            "",
-            "🚀 Deploy to Render:",
-            result["deploy_url"],
-            "",
-            "📋 Что делать:",
-            "1. Открой ссылку Deploy to Render",
-            "2. Авторизуйся в Render",
-            "3. Введи BOT_TOKEN от @BotFather",
-            "4. Дождись билда (~2 мин)",
-            "",
-            f"📁 Файлов загружено: {result['uploaded']}/{result['total']}",
-        ]
-        bot.reply_to(message, "\n".join(lines))
-    except Exception as e:
-        import traceback
-        bot.reply_to(message, f"🔥 Ошибка: {traceback.format_exc()[-300:]}")
-
-
-# ============================================================
-# ПРИЁМ ФАЙЛОВ
-# ============================================================
-
-@bot.message_handler(content_types=['document'])
-def handle_document(message):
-    """Принимает документ и извлекает текст."""
-    try:
-        doc = message.document
-        filename = doc.file_name or "file"
-        file_size = doc.file_size or 0
-
-        if file_size > 5 * 1024 * 1024:
-            bot.reply_to(message, "⚠ Файл больше 5 МБ.")
-            return
-
-        bot.reply_to(message, f"📥 Скачиваю {filename}...")
-        file_info = bot.get_file(doc.file_id)
-        downloaded = bot.download_file(file_info.file_path)
-
-        from file_parser import extract_text
-        text, err = extract_text(downloaded, filename)
-        if err:
-            bot.reply_to(message, f"❌ {err}")
-            return
-
-        user_id = message.from_user.id
-        file_type = filename.rsplit(".", 1)[-1].lower() if "." in filename else "txt"
-        save_user_file(user_id, filename, text, file_type)
-
-        preview = text[:400].replace("\n", " ")
-        bot.reply_to(message,
-            f"✅ Файл принят: {filename}\n"
-            f"📏 Извлечено: {len(text)} символов\n\n"
-            f"Превью:\n{preview}...\n\n"
-            "Теперь /make_full <ТЗ> учтёт содержимое."
-        )
-    except Exception as e:
-        import traceback
-        bot.reply_to(message, f"🔥 Ошибка приёма: {traceback.format_exc()[-300:]}")
-
-
-@bot.message_handler(commands=['myfile'])
-def handle_myfile(message):
-    """Показывает последний загруженный файл."""
-    user_id = message.from_user.id
-    row = get_latest_user_file(user_id)
-    if not row:
-        bot.reply_to(message, "📂 Нет сохранённых файлов.")
-        return
-    filename, content, ftype, uploaded = row
-    preview = content[:300].replace("\n", " ")
-    bot.reply_to(message,
-        f"📄 Последний файл: {filename}\n"
-        f"Тип: {ftype}\nЗагружен: {uploaded}\n"
-        f"Размер: {len(content)} символов\n\n"
-        f"Превью:\n{preview}..."
-    )
-
-
-@bot.message_handler(commands=['clearfile'])
-def handle_clearfile(message):
-    """Удаляет файлы юзера."""
-    clear_user_files(message.from_user.id)
-    bot.reply_to(message, "🗑 Файлы удалены.")
-
-
-# ============================================================
-# ЭХО (для не-командных сообщений)
-# ============================================================
-
-
-
-# ============================================================
-# КОД-РЕВЬЮ, ОБЪЯСНЕНИЕ, ПОЧИНКА
-# ============================================================
 
 def _process_code_input(message, action):
     """Обработчик следующего сообщения — код для review/explain/fix."""
@@ -775,49 +646,55 @@ def _process_code_for(message, action):
 
     if action == "tests":
         bot.reply_to(message, "🧪 Генерирую тесты... 15-30 сек.")
-        result = generate_tests(code_text)
+        tests_code = generate_tests(code_text)
+        if not tests_code or "Ошибка ИИ" in tests_code:
+            bot.reply_to(message, "⚠ Не получилось: " + str(tests_code)[:200])
+            return
+
+        # Пробуем запустить — но сначала нужно понять имя модуля
+        # Gemini пишет "from X import Y". Извлекаем X.
+        import re as _re
+        module_name = None
+        m = _re.search(r"from (\w+) import", tests_code)
+        if m:
+            module_name = m.group(1)
+
+        if module_name:
+            bot.reply_to(message, "🧪 Запускаю тесты через pytest... 15-30 сек.")
+            files = {
+                module_name + ".py": code_text,
+                "test_" + module_name + ".py": tests_code,
+            }
+            from sandbox import run_pytest
+            result = run_pytest(files, timeout=30)
+
+            if result["ok"]:
+                bot.reply_to(message,
+                    f"✅ Тесты пройдены!\n"
+                    f"📊 {result['summary'] or 'все тесты успешны'}"
+                )
+            else:
+                bot.reply_to(message,
+                    f"❌ Тесты упали.\n"
+                    f"📊 {result['summary'] or 'см. вывод ниже'}\n\n"
+                    f"Подробнее:\n{result['stdout'][-1000:]}"
+                )
+        else:
+            bot.reply_to(message,
+                "ℹ️ Сгенерированы тесты, но не удалось определить модуль для запуска.\n"
+                "Вот код:"
+            )
+            send_code(message, tests_code)
+
     elif action == "refactor":
         bot.reply_to(message, "🔧 Рефакторю... 20-40 сек.")
         result = refactor_code(code_text)
+        if not result or "Ошибка ИИ" in result:
+            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
+            return
+        send_code(message, result)
     else:
         result = None
-
-    if not result or "Ошибка ИИ" in result:
-        bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
-        return
-    send_code(message, result)
-
-
-@bot.message_handler(commands=['tests'])
-def handle_tests(message):
-    """/tests — сгенерировать pytest-тесты к коду."""
-    code_text = message.text.replace("/tests", "", 1).strip()
-    if len(code_text) >= 15:
-        bot.reply_to(message, "🧪 Генерирую тесты... 15-30 сек.")
-        result = generate_tests(code_text)
-        if not result or "Ошибка ИИ" in result:
-            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
-            return
-        send_code(message, result)
-    else:
-        bot.reply_to(message, "📝 Пришли код следующим сообщением.")
-        bot.register_next_step_handler(message, lambda m: _process_code_for(m, "tests"))
-
-
-@bot.message_handler(commands=['refactor'])
-def handle_refactor(message):
-    """/refactor — рефакторинг кода."""
-    code_text = message.text.replace("/refactor", "", 1).strip()
-    if len(code_text) >= 15:
-        bot.reply_to(message, "🔧 Рефакторю... 20-40 сек.")
-        result = refactor_code(code_text)
-        if not result or "Ошибка ИИ" in result:
-            bot.reply_to(message, "⚠ Не получилось: " + str(result)[:200])
-            return
-        send_code(message, result)
-    else:
-        bot.reply_to(message, "📝 Пришли код следующим сообщением.")
-        bot.register_next_step_handler(message, lambda m: _process_code_for(m, "refactor"))
 
 
 def _process_architect(message):

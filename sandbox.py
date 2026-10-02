@@ -141,3 +141,68 @@ def quick_smoke_test(code, timeout=10):
     """Обратная совместимость: запускает один файл."""
     prepared = _prepare_project({"test_script.py": code}, "test_script.py")
     return _run_in_tmpdir(prepared, "test_script.py", timeout)
+
+
+def run_pytest(files_dict, timeout=30):
+    """Запускает pytest в папке проекта. Возвращает dict с результатом."""
+    import subprocess
+    tmpdir = os.path.join(tempfile.gettempdir(), "pytest_" + uuid.uuid4().hex[:8])
+    os.makedirs(tmpdir, exist_ok=True)
+
+    # Пишем все файлы
+    for name, code in files_dict.items():
+        if ".." in name or name.startswith("/"):
+            continue
+        filepath = os.path.join(tmpdir, name)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        try:
+            with open(filepath, "w") as f:
+                f.write(code)
+        except Exception:
+            pass
+
+    try:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = tmpdir + os.pathsep + env.get("PYTHONPATH", "")
+        env["HOME"] = tmpdir
+        for k in ["BOT_TOKEN", "GEMINI_API_KEY", "GITHUB_TOKEN", "DB_PASSWORD"]:
+            env.pop(k, None)
+
+        result = subprocess.run(
+            [sys.executable, "-m", "pytest", "-v", "--tb=short", "--no-header"],
+            capture_output=True,
+            timeout=timeout,
+            env=env,
+            cwd=tmpdir,
+            text=True
+        )
+
+        passed = result.returncode == 0
+        stdout = (result.stdout or "")[:3000]
+        stderr = (result.stderr or "")[:1000]
+
+        # Ищем сводку вида "5 passed" / "3 failed, 2 passed"
+        import re
+        summary = ""
+        m = re.search(r"(\d+\s+(?:passed|failed|error)[^\n]*)", stdout)
+        if m:
+            summary = m.group(1)[:120]
+
+        return {
+            "ok": passed,
+            "stdout": stdout,
+            "stderr": stderr,
+            "summary": summary,
+            "returncode": result.returncode
+        }
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "stdout": "", "stderr": "", "summary": "Timeout (30с)",
+                "returncode": -1}
+    except Exception as e:
+        return {"ok": False, "stdout": "", "stderr": str(e), "summary": "Ошибка запуска",
+                "returncode": -1}
+    finally:
+        try:
+            shutil.rmtree(tmpdir, ignore_errors=True)
+        except Exception:
+            pass
