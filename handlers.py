@@ -976,6 +976,18 @@ def handle_make_js_parser(message):
         bot.reply_to(message, f"🔥 Ошибка: {traceback.format_exc()[-300:]}")
 
 
+
+
+@bot.message_handler(commands=['tests'])
+def handle_tests(message):
+    """/tests — сгенерировать и запустить pytest-тесты."""
+    code_text = message.text.replace("/tests", "", 1).strip()
+    if len(code_text) >= 15:
+        _process_code_for(message, "tests")
+    else:
+        bot.reply_to(message, "📝 Пришли код следующим сообщением.")
+        bot.register_next_step_handler(message, lambda m: _process_code_for(m, "tests"))
+
 # Ловушка для НЕИЗВЕСТНЫХ команд (всё, что начинается с /, но не сработало выше)
 @bot.message_handler(func=lambda m: m.text and m.text.startswith('/'))
 def unknown_command(message):
