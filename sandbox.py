@@ -41,14 +41,18 @@ def _install_requirements(files_dict, tmpdir):
             to_install.append(name)
     if not to_install:
         return
+    print("[SANDBOX] installing:", ", ".join(to_install), flush=True)
     try:
         subprocess.run(
             [sys.executable, "-m", "pip", "install", "-q",
              "--no-warn-script-location", *to_install],
-            capture_output=True, timeout=90, text=True,
+            capture_output=True, timeout=180, text=True,
         )
-    except Exception:
-        pass
+        print("[SANDBOX] install done", flush=True)
+    except subprocess.TimeoutExpired:
+        print("[SANDBOX] install timeout", flush=True)
+    except Exception as e:
+        print("[SANDBOX] install error:", e, flush=True)
 
 
 def _run_in_tmpdir(files_dict, main_file, timeout):

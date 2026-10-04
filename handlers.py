@@ -295,7 +295,7 @@ def handle_test(message):
         return
     bot.send_message(message.chat.id, f'🧪 Тестирую {main_file}...')
     try:
-        result = test_project_safe(files, main_file, timeout=20)
+        result = test_project_safe(files, main_file, timeout=120)
         ok = result.get('ok', False)
         stdout = result.get('stdout', '')[:1500]
         stderr = result.get('stderr', '')[:1500]
