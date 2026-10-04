@@ -175,7 +175,7 @@ def handle_make(message):
         files_json = json.dumps(files, ensure_ascii=False)
         pid = save_full_project(message.from_user.id, tz, files_json)
         file_list = '\n'.join('• ' + name for name in files)
-        text = '✅ Проект #' + str(pid) + ' создан!\n\nТип: *' + ptype + '*\nФайлы:\n' + file_list + '\n\n/dl_' + str(pid) + ' — скачать'
+        text = '✅ Проект #' + str(pid) + ' создан!\n\nТип: *' + ptype + '*\nФайлы:\n' + file_list + '\n\nСкачать: /dl ' + str(pid)
         bot.send_message(message.chat.id, text)  # без Markdown
     except Exception as e:
         bot.send_message(message.chat.id, f'❌ Ошибка: {e}')

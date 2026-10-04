@@ -8,6 +8,49 @@ import subprocess
 import tempfile
 
 
+# ── Whitelist безопасных пакетов (Render Free 512MB) ────────────────────────
+SAFE_PACKAGES = {
+    "aiogram", "python-telegram-bot", "pytelegrambotapi", "telebot",
+    "python-dotenv", "dotenv", "apscheduler",
+    "requests", "httpx", "beautifulsoup4", "bs4", "lxml",
+    "flask", "fastapi", "uvicorn", "jinja2",
+    "sqlalchemy", "pydantic", "openpyxl", "pillow",
+    "schedule", "pypdf", "gspread", "pandas", "numpy",
+    "python-dateutil", "pytz", "colorama", "rich",
+}
+
+
+def _install_requirements(files_dict, tmpdir):
+    """Ставит пакеты из requirements.txt — только из whitelist."""
+    req = files_dict.get("requirements.txt", "")
+    if not req:
+        return
+    to_install = []
+    for line in req.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line.startswith("-"):
+            continue
+        # Отрезаем версию: "aiogram==3.15.0" → "aiogram"
+        name = line
+        for sep in ["==", ">=", "<=", "~=", "!=", ">", "<"]:
+            if sep in name:
+                name = name.split(sep)[0]
+                break
+        name = name.strip().lower()
+        if name in SAFE_PACKAGES:
+            to_install.append(name)
+    if not to_install:
+        return
+    try:
+        subprocess.run(
+            [sys.executable, "-m", "pip", "install", "-q",
+             "--no-warn-script-location", *to_install],
+            capture_output=True, timeout=90, text=True,
+        )
+    except Exception:
+        pass
+
+
 def _run_in_tmpdir(files_dict, main_file, timeout):
     """Внутренняя: распаковывает все файлы и запускает main_file."""
     tmpdir = os.path.join(tempfile.gettempdir(), "sandbox_" + uuid.uuid4().hex[:8])
@@ -25,6 +68,8 @@ def _run_in_tmpdir(files_dict, main_file, timeout):
                 f.write(code)
         except Exception:
             pass
+
+    _install_requirements(files_dict, tmpdir)
 
     main_path = os.path.join(tmpdir, main_file)
 
