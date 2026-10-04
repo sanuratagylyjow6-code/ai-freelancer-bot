@@ -128,6 +128,14 @@ def _prepare_project(files_dict, main_file):
         ("bot.polling()", "print('would start polling')"),
         ("application.run_polling()", "print('would start polling')"),
         ("app.run(", "# app.run("),
+        ("await dp.start_polling(bot)", "print('would start polling')"),
+        ("await dp.start_polling(", "# await dp.start_polling("),
+        ("dp.start_polling(bot)", "print('would start polling')"),
+        ("dp.start_polling(", "# dp.start_polling("),
+        ("bot.run_polling()", "print('would start polling')"),
+        ("executor.start_polling(dp", "# executor.start_polling(dp"),
+        ("scheduler.start()", "# scheduler.start()"),
+        ("await asyncio.Event().wait()", "print('would wait forever')"),
     ]
 
     # Подмена плейсхолдеров токена
