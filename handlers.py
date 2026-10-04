@@ -299,8 +299,12 @@ def handle_test(message):
         ok = result.get('ok', False)
         stdout = result.get('stdout', '')[:1500]
         stderr = result.get('stderr', '')[:1500]
+        err = result.get('error') or ''
         emoji = '✅' if ok else '❌'
-        text = f'{emoji} Тест завершён.\n\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}'
+        text = f'{emoji} Тест завершён.\n'
+        if err:
+            text += f'\nERROR: {err}\n'
+        text += f'\nSTDOUT:\n{stdout}\n\nSTDERR:\n{stderr}'
         for chunk in split_long_message(text):
             bot.send_message(message.chat.id, chunk)                # отправка
     except Exception as e:
