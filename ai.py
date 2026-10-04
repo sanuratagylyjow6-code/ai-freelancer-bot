@@ -114,7 +114,14 @@ def generate_full_project(tz, project_type=None, max_fix_attempts=2):
     if 'README.md' not in files:
         files['README.md'] = f'# Проект\n\n{tz}'
 
-    return {'type': data.get('type', 'unknown'), 'files': files}
+    result_type = data.get('type', 'unknown')
+
+    # ── QA-проход: Gemini перечитывает свой код и чинит баги ────────
+    if files:                                                         # если есть файлы
+        print("[MAKE] running self-critique...")                      # лог
+        files = self_critique(files, tz)                              # критика
+
+    return {'type': result_type, 'files': files}
 def edit_project(existing_files, tz_edit, max_fix_attempts=2):
     # Дорабатывает существующий проект по правкам клиента
     files_text = ''
@@ -181,3 +188,56 @@ def auto_fix(original_code, error_text, attempts=MAX_ATTEMPTS):
         current = fixed
         error_text = result['stderr']
     return current
+
+
+def self_critique(files_dict, tz, max_attempts=1):
+    """QA-проход: Gemini ищет баги в своём коде и чинит их.
+
+    Возвращает обновлённый files_dict. Если багов нет — исходный.
+    """
+    import json as _json                                             # локальный json
+    import re as _re                                                 # локальный re
+    if not files_dict:                                               # пустой вход
+        return files_dict                                            # возвращаем как есть
+
+    files_text = ""                                                  # аккумулятор
+    for name, code in files_dict.items():                            # по файлам
+        files_text += "\n=== " + name + " ===\n" + code + "\n"    # формат
+
+    prompt = (                                                       # промпт QA
+        "Ты — QA-инженер уровня senior. Проверь этот код на баги.\n\n"
+        "ОБРАТИ ВНИМАНИЕ НА:\n"
+        "1. Опечатки в strftime/strptime (например %5 вместо %m).\n"
+        "2. Забытые импорты или неиспользуемые переменные.\n"
+        "3. Необработанные edge-cases (пустой ответ, None, деление на 0).\n"
+        "4. Несоответствие ТЗ клиента.\n"
+        "5. Отсутствие валидации пользовательского ввода.\n\n"
+        "ТЗ КЛИЕНТА:\n" + tz + "\n\n"
+        "ТЕКУЩИЕ ФАЙЛЫ:" + files_text + "\n\n"
+        "Верни ТОЛЬКО файлы, в которых нашёл баги, в формате JSON:\n"
+        '{"files": {"main.py": "исправленный код"}}\n'
+        "Если багов нет — верни {\"files\": {}}.\n"
+    )
+
+    raw = ask_ai(prompt)                                             # запрос к Gemini
+    if not raw:                                                      # нет ответа
+        return files_dict                                            # оригинал
+
+    cleaned = _re.sub(r"^```(?:json)?\s*", "", raw.strip())         # чистим ```
+    cleaned = _re.sub(r"\s*```$", "", cleaned)                      # чистим в конце
+
+    try:                                                             # парсим
+        data = _json.loads(cleaned)                                  # JSON
+    except Exception as e:                                           # упало
+        print("[CRITIQUE] parse failed: " + str(e))                  # лог
+        return files_dict                                            # оригинал
+
+    fixes = data.get("files", {})                                    # что починил
+    if not fixes:                                                    # пусто
+        print("[CRITIQUE] no bugs found")                            # лог
+        return files_dict                                            # оригинал
+
+    print("[CRITIQUE] fixed: " + ", ".join(fixes.keys()))            # лог
+    merged = dict(files_dict)                                        # копия
+    merged.update(fixes)                                             # заменяем починенные
+    return merged                                                    # результат

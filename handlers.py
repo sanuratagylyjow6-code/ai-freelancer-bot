@@ -164,7 +164,7 @@ def handle_make(message):
     if not tz:
         bot.send_message(message.chat.id, '📝 Напиши ТЗ: /make бот для ...\nИли загрузи PDF/TXT.')
         return
-    bot.send_message(message.chat.id, '⏳ Генерирую проект... (1-3 минуты)')
+    bot.send_message(message.chat.id, '⏳ Генерирую проект + QA-проверка... (2-4 минуты)')
     try:
         result = generate_full_project(tz)
         files = result.get('files', {})
