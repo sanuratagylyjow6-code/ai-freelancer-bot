@@ -32,7 +32,7 @@ def send_code(message, code_text):
     # Отправляет код в чат, оборачивая в тройные бэктики
     wrapped = f'```python\n{code_text}\n```'
     for chunk in split_long_message(wrapped):
-        bot.send_message(message.chat.id, chunk, parse_mode='Markdown')
+        bot.send_message(message.chat.id, chunk)
 
 def _make_zip(files_dict):
     # Собирает ZIP из dict {имя: содержимое}, возвращает байты
@@ -92,7 +92,7 @@ def handle_help(message):
         '/myfile — последний файл\n'
         '/clearfile — удалить файлы'
     )
-    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+    bot.send_message(message.chat.id, text)  # без Markdown
 
 @bot.message_handler(commands=['model'])
 def handle_model(message):
@@ -100,7 +100,7 @@ def handle_model(message):
     parts = message.text.split(maxsplit=1)
     if len(parts) == 1:
         current = get_current_model()
-        bot.send_message(message.chat.id, f'🎯 Текущая модель: `{current}`', parse_mode='Markdown')
+        bot.send_message(message.chat.id, f'🎯 Текущая модель: `{current}`')
         return
     alias = parts[1].strip().lower()
     mapping = {
@@ -112,7 +112,7 @@ def handle_model(message):
         bot.send_message(message.chat.id, '❓ Используй: lite / pro / latest')
         return
     set_model(mapping[alias])
-    bot.send_message(message.chat.id, f'✅ Модель: `{mapping[alias]}`', parse_mode='Markdown')
+    bot.send_message(message.chat.id, f'✅ Модель: `{mapping[alias]}`')
 
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
@@ -127,7 +127,7 @@ def handle_document(message):
             return
         save_user_file(message.from_user.id, doc.file_name, text)
         preview = text[:300] + ('...' if len(text) > 300 else '')
-        bot.send_message(message.chat.id, f'📄 Файл *{doc.file_name}* сохранён как ТЗ.\n\n{preview}', parse_mode='Markdown')
+        bot.send_message(message.chat.id, f'📄 Файл *{doc.file_name}* сохранён как ТЗ.\n\n{preview}')
     except Exception as e:
         bot.send_message(message.chat.id, f'❌ Ошибка: {e}')
 
@@ -140,7 +140,7 @@ def handle_myfile(message):
         return
     filename, content = row
     preview = content[:500] + ('...' if len(content) > 500 else '')
-    bot.send_message(message.chat.id, f'📄 *{filename}*\n\n{preview}', parse_mode='Markdown')
+    bot.send_message(message.chat.id, f'📄 *{filename}*\n\n{preview}')
 
 @bot.message_handler(commands=['clearfile'])
 def handle_clearfile(message):
@@ -176,7 +176,7 @@ def handle_make(message):
         pid = save_full_project(message.from_user.id, tz, files_json)
         file_list = '\n'.join('• ' + name for name in files)
         text = '✅ Проект #' + str(pid) + ' создан!\n\nТип: *' + ptype + '*\nФайлы:\n' + file_list + '\n\n/dl_' + str(pid) + ' — скачать'
-        bot.send_message(message.chat.id, text, parse_mode='Markdown')
+        bot.send_message(message.chat.id, text)  # без Markdown
     except Exception as e:
         bot.send_message(message.chat.id, f'❌ Ошибка: {e}')
 
@@ -244,7 +244,7 @@ def handle_myprojects(message):
     for pid, tz, created in rows:
         short = tz[:60] + ('...' if len(tz) > 60 else '')
         text += f'*#{pid}* — {short}\n'
-    bot.send_message(message.chat.id, text, parse_mode='Markdown')
+    bot.send_message(message.chat.id, text)  # без Markdown
 
 @bot.message_handler(commands=['dl'])
 def handle_dl(message):
