@@ -339,6 +339,47 @@ def handle_deploy(message):
     except Exception as e:
         bot.send_message(message.chat.id, f'❌ Ошибка деплоя: {e}')
 
+
+
+@bot.message_handler(commands=['critique'])
+def handle_critique(message):
+    """Запускает QA-проход по существующему проекту."""
+    parts = message.text.split(maxsplit=1)
+    if len(parts) < 2:
+        bot.send_message(message.chat.id, '📝 Формат: /critique <id>')
+        return
+    try:
+        pid = int(parts[1])
+    except ValueError:
+        bot.send_message(message.chat.id, '❌ id — число.')
+        return
+    row = get_full_project(pid, message.from_user.id)
+    if not row:
+        bot.send_message(message.chat.id, f'❌ Проект #{pid} не найден.')
+        return
+    _, tz, files_json = row
+    files = json.loads(files_json)
+    bot.send_message(message.chat.id, '🔍 QA-проверка проекта... (30-60 сек)')
+    try:
+        from ai import self_critique
+        fixed = self_critique(files, tz)
+        changed = set(fixed.keys()) - set(files.keys())
+        same_content = [k for k in fixed if files.get(k) == fixed[k]]
+        real_changed = [k for k in fixed if files.get(k) != fixed[k]]
+        if not real_changed:
+            bot.send_message(message.chat.id, '✅ Багов не найдено. Код чистый.')
+            return
+        new_json = json.dumps(fixed, ensure_ascii=False)
+        update_full_project(pid, message.from_user.id, new_json)
+        text = '🔧 Найдены баги и исправлены в:\n'
+        for f in real_changed:
+            text += f'• {f}\n'
+        text += f'\nСкачать обновлённый: /dl {pid}'
+        bot.send_message(message.chat.id, text)
+    except Exception as e:
+        bot.send_message(message.chat.id, f'❌ Ошибка QA: {e}')
+
+
 @bot.message_handler(func=lambda m: m.text and m.text.startswith('/'))
 def handle_unknown(message):
     # Подсказывает на неизвестные команды
