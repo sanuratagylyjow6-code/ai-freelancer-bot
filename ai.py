@@ -119,7 +119,26 @@ def generate_full_project(tz, project_type=None, max_fix_attempts=2):
     # ── QA-проход: Gemini перечитывает свой код и чинит баги ────────
     if files:                                                         # если есть файлы
         print("[MAKE] running self-critique...")                      # лог
-        files = self_critique(files, tz)                              # критика
+        original = dict(files)                                        # бэкап
+        try:                                                          # пробуем QA
+            files = self_critique(files, tz)                          # критика
+        except Exception as e:                                        # QA упал
+            print("[MAKE] critique failed: " + str(e))                # лог
+            files = original                                          # откат
+
+        # ── Защита: проверяем синтаксис после QA ────────────────
+        broken = []                                                   # список битых
+        for name, code in files.items():                              # по файлам
+            if name.endswith('.py'):                                  # только Python
+                try:                                                  # пробуем парсить
+                    import ast as _ast                                # локальный import
+                    _ast.parse(code)                                  # парсим
+                except SyntaxError as e:                              # битый код
+                    broken.append(name + ": " + str(e))               # записываем
+                    print("[MAKE] QA broke " + name + ": " + str(e))  # лог
+        if broken:                                                    # если что-то битое
+            print("[MAKE] reverting QA — syntax errors")              # лог
+            files = original                                          # откат к оригиналу
 
     return {'type': result_type, 'files': files}
 def edit_project(existing_files, tz_edit, max_fix_attempts=2):
