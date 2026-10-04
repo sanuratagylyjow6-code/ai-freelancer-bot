@@ -58,7 +58,6 @@ def _run_in_tmpdir(files_dict, main_file, timeout):
 
     # Записываем ВСЕ файлы проекта
     for name, code in files_dict.items():
-        # Защита: не пишем за пределы tmpdir
         if ".." in name or name.startswith("/"):
             continue
         filepath = os.path.join(tmpdir, name)
@@ -69,26 +68,44 @@ def _run_in_tmpdir(files_dict, main_file, timeout):
         except Exception:
             pass
 
+    # Ставим зависимости из requirements (только whitelist)
     _install_requirements(files_dict, tmpdir)
 
-    main_path = os.path.join(tmpdir, main_file)
+    # Wrapper: запускает main_file как МОДУЛЬ (run_name != "__main__")
+    # → блок if __name__ == "__main__" не срабатывает → бот не запускается
+    wrapper_path = os.path.join(tmpdir, "_sandbox_wrapper.py")
+    wrapper_code = (
+        "import sys, os, runpy\n"
+        "sys.path.insert(0, os.getcwd())\n"
+        "try:\n"
+        "    runpy.run_path(" + repr(main_file) + ", run_name='_sandbox_')\n"
+        "    print('[SANDBOX] module loaded OK')\n"
+        "except SystemExit as e:\n"
+        "    print('[SANDBOX] SystemExit:', e.code)\n"
+        "except Exception:\n"
+        "    import traceback\n"
+        "    traceback.print_exc()\n"
+        "    sys.exit(1)\n"
+    )
+    with open(wrapper_path, "w") as wf:
+        wf.write(wrapper_code)
 
     try:
-        # Наследуем env родителя (чтобы найти site-packages) + добавляем tmpdir
         safe_env = os.environ.copy()
         safe_env["PYTHONPATH"] = tmpdir + os.pathsep + safe_env.get("PYTHONPATH", "")
         safe_env["HOME"] = tmpdir
-        # Убираем возможные секреты, чтобы код не мог их прочитать
-        for secret_key in ["BOT_TOKEN", "GEMINI_API_KEY", "GITHUB_TOKEN", "DATABASE_URL"]:
+        for secret_key in ["GEMINI_API_KEY", "GITHUB_TOKEN", "DATABASE_URL", "DB_PASSWORD"]:
             safe_env.pop(secret_key, None)
+        # Фейковый токен, чтобы Bot(token=...) не падал при импорте
+        safe_env["BOT_TOKEN"] = "1234567890:FAKE_TEST_TOKEN_NOT_REAL_AAAAAAAAA"
 
         result = subprocess.run(
-            [sys.executable, main_path],
+            [sys.executable, "-u", wrapper_path],
             capture_output=True,
             timeout=timeout,
             env=safe_env,
             cwd=tmpdir,
-            text=True
+            text=True,
         )
 
         return {
@@ -96,7 +113,7 @@ def _run_in_tmpdir(files_dict, main_file, timeout):
             "stdout": (result.stdout or "")[:2000],
             "stderr": (result.stderr or "")[:2000],
             "returncode": result.returncode,
-            "error": None
+            "error": None,
         }
 
     except subprocess.TimeoutExpired:
@@ -111,77 +128,10 @@ def _run_in_tmpdir(files_dict, main_file, timeout):
         except Exception:
             pass
 
-
-def test_code_safe(code, timeout=15):
-    """Запускает один файл (для обратной совместимости)."""
-    return _run_in_tmpdir({"test_script.py": code}, "test_script.py", timeout)
-
-
 def _prepare_project(files_dict, main_file):
-    """Заменяет блокирующие вызовы и плейсхолдеры токенов."""
-    import re
-
-    # Блокирующие вызовы → в print
-    blocking = [
-        ("bot.infinity_polling()", "print('would start polling')"),
-        ("bot.polling(none_stop=True)", "print('would start polling')"),
-        ("bot.polling()", "print('would start polling')"),
-        ("application.run_polling()", "print('would start polling')"),
-        ("app.run(", "# app.run("),
-        ("await dp.start_polling(bot)", "print('would start polling')"),
-        ("await dp.start_polling(", "# await dp.start_polling("),
-        ("dp.start_polling(bot)", "print('would start polling')"),
-        ("dp.start_polling(", "# dp.start_polling("),
-        ("bot.run_polling()", "print('would start polling')"),
-        ("executor.start_polling(dp", "# executor.start_polling(dp"),
-        ("scheduler.start()", "# scheduler.start()"),
-        ("await asyncio.Event().wait()", "print('would wait forever')"),
-    ]
-
-    # Подмена плейсхолдеров токена
-    # Валидный формат: "<10 цифр>:<35 символов>"
-    FAKE_TOKEN = "1234567890:FAKE_TEST_TOKEN_NOT_REAL_AAAAAAAAA"
-
-    prepared = {}
-    for name, code in files_dict.items():
-        new_code = code
-
-        # 1) Блокирующие вызовы
-        for old, new in blocking:
-            new_code = new_code.replace(old, new)
-
-        # 2) Плейсхолдеры токенов — все варианты, что генерирует Gemini
-        placeholders = [
-            '"YOUR_BOT_TOKEN_HERE"',
-            "'YOUR_BOT_TOKEN_HERE'",
-            '"YOUR_BOT_TOKEN"',
-            "'YOUR_BOT_TOKEN'",
-            '"TOKEN_HERE"',
-            "'TOKEN_HERE'",
-            '"YOUR_TOKEN"',
-            "'YOUR_TOKEN'",
-            '"ВАШ_ТОКЕН"',
-            "'ВАШ_ТОКЕН'",
-        ]
-        for ph in placeholders:
-            new_code = new_code.replace(ph, '"' + FAKE_TOKEN + '"')
-
-        # 3) Регуляркой ловим остальные плейсхолдеры
-        new_code = re.sub(
-            r'(?i)(["\'])YOUR[_A-Z]*BOT[_A-Z]*TOKEN[_A-Z]*(["\'])',
-            '"' + FAKE_TOKEN + '"',
-            new_code
-        )
-
-        # 4) os.getenv("BOT_TOKEN", "плейсхолдер") → подменяем дефолт
-        new_code = re.sub(
-            r'(getenv\(["\']BOT_TOKEN["\'],\s*)(["\'])[^"\']*\2',
-            r'\1"' + FAKE_TOKEN + '"',
-            new_code
-        )
-
-        prepared[name] = new_code
-    return prepared
+    """Заглушка: с новым runpy-запуском блокировки не нужны,
+    токен передаётся через env["BOT_TOKEN"]."""
+    return dict(files_dict)
 
 
 def test_project_safe(files_dict, main_file, timeout=15):
