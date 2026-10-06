@@ -73,22 +73,25 @@ def handle_start(message):
 def handle_help(message):
     # Показывает список команд
     text = (
-        '🤖 *Python-фабрика*\n\n'
-        '*Генерация:*\n'
-        '/make <ТЗ> — создать проект\n'
-        '/preview <ТЗ> — структура до генерации\n'
-        '/edit <id> <правки> — доработать\n\n'
-        '*Проекты:*\n'
-        '/myprojects — список моих проектов\n'
-        '/dl <id> — скачать ZIP\n'
-        '/test <id> — запустить тесты\n\n'
-        '*Настройки:*\n'
-        '/model — какая модель\n'
-        '/model lite|pro|latest — переключить\n\n'
-        '*Файлы:*\n'
-        'Отправь PDF/TXT/MD — станет ТЗ\n'
-        '/myfile — последний файл\n'
-        '/clearfile — удалить файлы'
+        "🤖 Python-фабрика\n\n"
+        "ГЕНЕРАЦИЯ:\n"
+        "/make <ТЗ> — создать проект\n"
+        "/preview <ТЗ> — структура до генерации\n"
+        "/edit <id> <правки> — доработать\n\n"
+        "ПРОЕКТЫ:\n"
+        "/myprojects — список моих проектов\n"
+        "/dl <id> — скачать ZIP\n"
+        "/test <id> — запустить тесты\n"
+        "/critique <id> — QA-проверка проекта\n\n"
+        "НАСТРОЙКИ:\n"
+        "/model — показать текущую модель\n"
+        "/model lite — быстрая\n"
+        "/model pro — умная\n"
+        "/model latest — свежая\n\n"
+        "ФАЙЛЫ:\n"
+        "Отправь PDF/TXT/MD — станет ТЗ\n"
+        "/myfile — последний файл\n"
+        "/clearfile — удалить файлы"
     )
     bot.send_message(message.chat.id, text)  # без Markdown
 
