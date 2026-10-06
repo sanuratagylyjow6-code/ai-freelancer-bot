@@ -53,6 +53,20 @@ def _detect_main_file(files_dict):
             return name
     return None
 
+# ── ГЛАВНЫЙ ЗАМОК: только OWNER_ID имеет доступ ─────────────────────────
+@bot.message_handler(                                                        # декоратор
+    func=lambda m: m.from_user is not None and m.from_user.id != OWNER_ID,    # фильтр: чужой
+    content_types=['text', 'document', 'photo', 'video', 'audio', 'voice', 'sticker']  # любые медиа
+)
+def handle_blocked(message):                                                  # обработчик
+    # Отсекает всех, кроме владельца. Первый в цепочке — перехватывает раньше других.
+    try:                                                                      # защита от сбоев
+        bot.send_message(message.chat.id, '⛔ Доступ закрыт.')                 # ответ
+    except Exception:                                                          # если не смог
+        pass                                                                   # молча выходим
+    return                                                                    # стоп
+
+
 @bot.message_handler(commands=['start'])
 def handle_start(message):
     # Регистрирует юзера и приветствует
