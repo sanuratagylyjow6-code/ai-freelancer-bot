@@ -1,6 +1,6 @@
 # handlers.py — все команды бота
-# 9 команд: /start /help /make /preview /edit /myprojects /dl
-#           /test /deploy /model + загрузка файлов (PDF/TXT)
+# 9 команд: /start /help /model /make /preview /edit /myprojects
+#           /dl /test /critique + загрузка файлов (PDF/TXT)
 
 import io
 import os
@@ -20,7 +20,6 @@ from ai import (
     set_model, get_current_model
 )
 from sandbox import test_project_safe, quick_smoke_test
-from deployer import deploy_project
 from file_parser import extract_text
 
 def split_long_message(text, max_len=None):
@@ -82,8 +81,7 @@ def handle_help(message):
         '*Проекты:*\n'
         '/myprojects — список моих проектов\n'
         '/dl <id> — скачать ZIP\n'
-        '/test <id> — запустить тесты\n'
-        '/deploy <id> — деплой на GitHub+Render\n\n'
+        '/test <id> — запустить тесты\n\n'
         '*Настройки:*\n'
         '/model — какая модель\n'
         '/model lite|pro|latest — переключить\n\n'
@@ -309,76 +307,6 @@ def handle_test(message):
             bot.send_message(message.chat.id, chunk)                # отправка
     except Exception as e:
         bot.send_message(message.chat.id, f'❌ Ошибка теста: {e}')
-
-@bot.message_handler(commands=['deploy'])
-def handle_deploy(message):
-    # Публикует проект на GitHub и даёт ссылку Render
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.send_message(message.chat.id, '📝 Формат: /deploy <id>')
-        return
-    try:
-        pid = int(parts[1])
-    except ValueError:
-        bot.send_message(message.chat.id, '❌ id — число.')
-        return
-    row = get_full_project(pid, message.from_user.id)
-    if not row:
-        bot.send_message(message.chat.id, f'❌ Проект #{pid} не найден.')
-        return
-    _, tz, files_json = row
-    files = json.loads(files_json)
-    bot.send_message(message.chat.id, '🚀 Публикую на GitHub...')
-    try:
-        repo_name = f'ai-project-{pid}'
-        result = deploy_project(repo_name, files, tz, project_type='app')
-        repo_url = result.get('repo_url', '')
-        render_url = result.get('render_url', '')
-        text = f'✅ Опубликовано!\n\nGitHub: {repo_url}\nRender: {render_url}'
-        bot.send_message(message.chat.id, text)                    # отправка
-    except Exception as e:
-        bot.send_message(message.chat.id, f'❌ Ошибка деплоя: {e}')
-
-
-
-@bot.message_handler(commands=['critique'])
-def handle_critique(message):
-    """Запускает QA-проход по существующему проекту."""
-    parts = message.text.split(maxsplit=1)
-    if len(parts) < 2:
-        bot.send_message(message.chat.id, '📝 Формат: /critique <id>')
-        return
-    try:
-        pid = int(parts[1])
-    except ValueError:
-        bot.send_message(message.chat.id, '❌ id — число.')
-        return
-    row = get_full_project(pid, message.from_user.id)
-    if not row:
-        bot.send_message(message.chat.id, f'❌ Проект #{pid} не найден.')
-        return
-    _, tz, files_json = row
-    files = json.loads(files_json)
-    bot.send_message(message.chat.id, '🔍 QA-проверка проекта... (30-60 сек)')
-    try:
-        from ai import self_critique
-        fixed = self_critique(files, tz)
-        changed = set(fixed.keys()) - set(files.keys())
-        same_content = [k for k in fixed if files.get(k) == fixed[k]]
-        real_changed = [k for k in fixed if files.get(k) != fixed[k]]
-        if not real_changed:
-            bot.send_message(message.chat.id, '✅ Багов не найдено. Код чистый.')
-            return
-        new_json = json.dumps(fixed, ensure_ascii=False)
-        update_full_project(pid, message.from_user.id, new_json)
-        text = '🔧 Найдены баги и исправлены в:\n'
-        for f in real_changed:
-            text += f'• {f}\n'
-        text += f'\nСкачать обновлённый: /dl {pid}'
-        bot.send_message(message.chat.id, text)
-    except Exception as e:
-        bot.send_message(message.chat.id, f'❌ Ошибка QA: {e}')
-
 
 @bot.message_handler(func=lambda m: m.text and m.text.startswith('/'))
 def handle_unknown(message):
