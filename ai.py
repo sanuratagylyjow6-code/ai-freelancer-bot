@@ -92,7 +92,10 @@ def generate_full_project(tz, project_type=None, max_fix_attempts=2):
     # Отправляем в Gemini
     raw = ask_ai(system + '\n\n' + user)
     if not raw:
+        print("[MAKE] Gemini returned empty (all retries failed)")
         return {'type': 'unknown', 'files': {}}
+    print("[MAKE] Gemini raw length: " + str(len(raw)))
+    print("[MAKE] Gemini raw first 200: " + raw[:200].replace(chr(10), " "))
 
     # Очищаем от ```json ... ``` если Gemini обернул
     cleaned = raw.strip()
